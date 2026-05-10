@@ -183,7 +183,10 @@ androidComponents {
 
 base {
     archivesName.set(
-        "${managerName.replace(" ", "_")}_${managerVersionName}_${managerVersionCode}"
+        if (managerVersionName == managerVersionCode.toString())
+            "${managerName.replace(" ", "_")}_${managerVersionCode}"
+        else
+            "${managerName.replace(" ", "_")}_${managerVersionName}_${managerVersionCode}"
     )
 }
 
