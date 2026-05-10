@@ -102,6 +102,7 @@ class ModuleViewModel(
                 checkModuleUpdate = settingsRepo.checkModuleUpdate,
                 sortEnabledFirst = settingsRepo.moduleSortEnabledFirst,
                 sortActionFirst = settingsRepo.moduleSortActionFirst,
+                sortById = settingsRepo.moduleSortById,
             )
         }
         updateModuleList()
@@ -118,6 +119,13 @@ class ModuleViewModel(
         val newValue = !_uiState.value.sortEnabledFirst
         settingsRepo.moduleSortEnabledFirst = newValue
         _uiState.update { it.copy(sortEnabledFirst = newValue) }
+        updateModuleList()
+    }
+
+    fun setSortById(sortById: Boolean) {
+        if (_uiState.value.sortById == sortById) return
+        settingsRepo.moduleSortById = sortById
+        _uiState.update { it.copy(sortById = sortById) }
         updateModuleList()
     }
 
@@ -231,7 +239,7 @@ class ModuleViewModel(
             },
             { if (state.sortEnabledFirst) !it.enabled else 0 },
             { if (state.sortActionFirst) !(it.hasWebUi || it.hasActionScript) else 0 },
-        ).thenBy(Collator.getInstance(Locale.getDefault()), Module::id)
+        ).thenBy(Collator.getInstance(Locale.getDefault())) { if (state.sortById) it.id else it.name }
     }
 
     suspend fun loadModuleList(resort: Boolean = true) {

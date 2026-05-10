@@ -122,6 +122,10 @@ class SettingsRepositoryImpl : SettingsRepository {
         get() = prefs.getBoolean("module_sort_action_first", false)
         set(value) = prefs.edit { putBoolean("module_sort_action_first", value) }
 
+    override var moduleSortById: Boolean
+        get() = prefs.getBoolean("module_sort_by_id", false)
+        set(value) = prefs.edit { putBoolean("module_sort_by_id", value) }
+
     override var moduleRepoSortOrder: String
         get() = RepoSort.fromStored(
             name = prefs.getString("module_repo_sort", null),
