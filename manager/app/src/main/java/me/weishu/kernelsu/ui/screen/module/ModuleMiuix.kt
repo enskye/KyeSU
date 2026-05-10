@@ -288,25 +288,48 @@ fun ModulePagerMiuix(
                                     },
                                     content = {
                                         ListPopupColumn {
+                                            val sortEntries = listOf(
+                                                false to R.string.module_sort_by_name,
+                                                true to R.string.module_sort_by_id,
+                                            )
+                                            val optionSize = sortEntries.size + 2
+                                            sortEntries.forEachIndexed { index, (byId, resId) ->
+                                                DropdownImpl(
+                                                    text = stringResource(resId),
+                                                    optionSize = optionSize,
+                                                    isSelected = uiState.sortById == byId,
+                                                    onSelectedIndexChange = {
+                                                        actions.onSetSortById(byId)
+                                                        showTopPopup.value = false
+                                                    },
+                                                    index = index
+                                                )
+                                            }
+
+                                            HorizontalDivider(
+                                                modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp),
+                                                thickness = 1.5.dp,
+                                            )
+
                                             DropdownImpl(
                                                 text = stringResource(R.string.module_sort_action_first),
-                                                optionSize = 2,
+                                                optionSize = optionSize,
                                                 isSelected = uiState.sortActionFirst,
                                                 onSelectedIndexChange = {
                                                     actions.onToggleSortActionFirst()
                                                     showTopPopup.value = false
                                                 },
-                                                index = 0
+                                                index = sortEntries.size
                                             )
                                             DropdownImpl(
                                                 text = stringResource(R.string.module_sort_enabled_first),
-                                                optionSize = 2,
+                                                optionSize = optionSize,
                                                 isSelected = uiState.sortEnabledFirst,
                                                 onSelectedIndexChange = {
                                                     actions.onToggleSortEnabledFirst()
                                                     showTopPopup.value = false
                                                 },
-                                                index = 1
+                                                index = sortEntries.size + 1
                                             )
                                         }
                                     }
@@ -524,6 +547,7 @@ fun ModulePagerMiuix(
                         listState,
                         uiState.sortEnabledFirst,
                         uiState.sortActionFirst,
+                        uiState.sortById,
                         refreshTick.intValue,
                         isBusy = { latestRefreshing.value },
                     ) { latestModules.value }
