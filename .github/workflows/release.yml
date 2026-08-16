@@ -1,8 +1,5 @@
 name: Release
 on:
-  push:
-    tags:
-      - "v*"
   workflow_dispatch:
 
 jobs:
@@ -64,6 +61,10 @@ jobs:
       - name: release
         uses: softprops/action-gh-release@v3
         with:
+          tag_name: nightly
+          name: Nightly build
+          prerelease: true
+          target_commitish: ${{ github.sha }}
           files: |
             manager/*.apk
             lkm/lkm-*_kernelsu.ko
