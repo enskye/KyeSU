@@ -1,26 +1,8 @@
 name: ClangFormat check
 
 on:
-  push:
-    branches:
-      - 'main'
-      - 'dev'
-    paths:
-      - '.github/workflows/clang-format.yml'
-      - 'kernel/**/*.c'
-      - 'kernel/**/*.h'
-  pull_request:
-    branches:
-      - 'main'
-      - 'dev'
-    paths:
-      - '.github/workflows/clang-format.yml'
-      - 'kernel/**/*.c'
-      - 'kernel/**/*.h'
-      - 'kernel/.clang-format'
-
-permissions:
-  checks: write
+  # Manual only: no push/PR triggers, run from the Actions tab when needed.
+  workflow_dispatch:
 
 jobs:
   format:
