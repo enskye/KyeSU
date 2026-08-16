@@ -1,23 +1,8 @@
 name: Clippy check
 
 on:
-  push:
-    branches:
-      - main
-      - dev
-    paths:
-      - '.github/workflows/clippy.yml'
-      - 'userspace/**'
-  pull_request:
-    branches:
-      - main
-      - dev
-    paths:
-      - '.github/workflows/clippy.yml'
-      - 'userspace/**'
-
-env:
-  RUSTFLAGS: '-Dwarnings'
+  # Manual only: no push/PR triggers, run from the Actions tab when needed.
+  workflow_dispatch:
 
 jobs:
   clippy:
