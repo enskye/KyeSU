@@ -11,8 +11,17 @@ MDIR := $(realpath $(dir $(abspath $(lastword $(MAKEFILE_LIST)))))
 $(info -- KDIR: $(KDIR))
 $(info -- MDIR: $(MDIR))
 
-# compliant to last upstream kernel change as of 3497a56
-CFLAGS_ksu.o += -DKSU_VERSION=32603
+# version must match getVersionCode() in manager/build.gradle.kts
+# fallback = last hand-bumped value (upstream kernel change 3497a56)
+KSU_GIT_VERSION := $(shell cd $(MDIR) && git rev-list --count HEAD 2>/dev/null)
+ifeq ($(KSU_GIT_VERSION),)
+KSU_VERSION := 32603
+$(warning -- KernelSU: git unavailable, fallback KSU_VERSION=$(KSU_VERSION))
+else
+KSU_VERSION := $(shell expr 30000 + $(KSU_GIT_VERSION) - 97)
+endif
+$(info -- KernelSU version: $(KSU_VERSION))
+CFLAGS_ksu.o += -DKSU_VERSION=$(KSU_VERSION)
 
 ifndef KSU_EXPECTED_SIZE
 KSU_EXPECTED_SIZE := 0x351
