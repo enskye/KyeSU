@@ -1,36 +1,8 @@
 name: Build Manager
 
 on:
-  push:
-    branches: [ "main", "dev", "ci", "test", "staging" ]
-    paths:
-      - '.github/workflows/build-manager.yml'
-      - '.github/workflows/build-lkm.yml'
-      - '.github/workflows/ddk-lkm.yml'
-      - '.github/workflows/ksud.yml'
-      - '.github/workflows/ksud-extra.yml'
-      - '.github/scripts/setup-rust-build.sh'
-      - 'repack_apk.py'
-      - 'manager/**'
-      - 'kernel/**'
-      - 'userspace/**'
-      - 'Cargo.lock'
-      - 'Cargo.toml'
-  pull_request:
-    branches: [ "main", "dev" ]
-    paths:
-      - '.github/workflows/build-manager.yml'
-      - '.github/workflows/build-lkm.yml'
-      - '.github/workflows/ddk-lkm.yml'
-      - '.github/workflows/ksud.yml'
-      - '.github/workflows/ksud-extra.yml'
-      - '.github/scripts/setup-rust-build.sh'
-      - 'repack_apk.py'
-      - 'manager/**'
-      - 'kernel/**'
-      - 'userspace/**'
-      - 'Cargo.lock'
-      - 'Cargo.toml'
+  # Manual only. Push/PR triggers removed on purpose (private repo, capped
+  # minutes): run from the Actions tab, or via release.yml on a "v*" tag.
   workflow_call:
   workflow_dispatch:
 
@@ -121,22 +93,8 @@ jobs:
       target: ${{ matrix.target }}
       pack_lkm: ${{ matrix.pack_lkm }}
       pack_ksuinit: ${{ matrix.pack_ksuinit }}
-  
-  build-ksud-extra:
-    needs: [build-lkm, build-ksuinit]
-    strategy:
-      matrix:
-        include:
-          - target: aarch64-unknown-linux-musl # arm64 Linux
-            os: ubuntu-latest
-          - target: x86_64-unknown-linux-musl # x86 Linux
-            os: ubuntu-latest
-    uses: ./.github/workflows/ksud-extra.yml
-    with:
-      target: ${{ matrix.target }}
-      os: ${{ matrix.os }}
-      pack_lkm: false
-      pack_ksuinit: false
+
+  # build-ksud-extra (desktop ksud) removed: unused leaf job, and ksud-extra.yml is deleted.
 
   build-manager:
     needs: [generate-key]
@@ -157,9 +115,9 @@ jobs:
         run: |
             {
               echo KEYSTORE_PASSWORD='password'
-              echo KEY_ALIAS='alias'
+              echo KEY_ALIAS='kyesu'
               echo KEY_PASSWORD='password'
-              echo KEYSTORE_FILE='dummy.keystore'
+              echo KEYSTORE_FILE='kyesu.keystore'
             } >> gradle.properties
 
       - name: Write PR key
@@ -279,8 +237,8 @@ jobs:
 
       - name: Prepare signing inputs
         run: |
-          echo "SIGN_KEYSTORE_FILE=manager/dummy.keystore" >> $GITHUB_ENV
-          echo "SIGN_KEY_ALIAS=alias" >> $GITHUB_ENV
+          echo "SIGN_KEYSTORE_FILE=manager/kyesu.keystore" >> $GITHUB_ENV
+          echo "SIGN_KEY_ALIAS=kyesu" >> $GITHUB_ENV
           echo "SIGN_KEYSTORE_PASSWORD=password" >> $GITHUB_ENV
           echo "SIGN_KEY_PASSWORD=password" >> $GITHUB_ENV
 
