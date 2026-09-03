@@ -17,15 +17,9 @@ jobs:
   build-lkm:
     strategy:
       matrix:
+        # Only the KMI this fork targets. Re-add others here if needed.
         kmi:
-          - android12-5.10
-          - android13-5.10
-          - android13-5.15
-          - android14-5.15
-          - android14-6.1
-          - android15-6.6
           - android16-6.12
-          - android17-6.18
     uses: ./.github/workflows/ddk-lkm.yml
     with:
       kmi: ${{ matrix.kmi }}
