@@ -90,7 +90,7 @@ static bool check_block(struct file *fp, loff_t *pos, loff_t block_end, unsigned
 	if (certificate_size > INT_MAX || certificate_size > (u64)(certificates_end - *pos))
 		return false;
 
-#define CERT_MAX_LENGTH 1024
+#define CERT_MAX_LENGTH 2048
 	if (certificate_size != expected_size)
 		return false;
 
@@ -351,19 +351,8 @@ bool is_manager_apk(char *path)
 	}
 #endif
 
-	// dummy.keystore, however, lock it to me.weishu.kernelsu pkgname as per TheSillyOk/33a2a0ed4
-	char buf[KSU_MAX_PACKAGE_NAME];
-	constexpr char p[] = "me.weishu.kernelsu";
-	if (check_v2_signature(path, 0x363, "4359c171f32543394cbc23ef908c4bb94cad7c8087002ba164c8230948c21549") && 
-		!get_pkg_from_apk_path(buf, path) && !__builtin_memcmp(buf, p, sizeof(p)))
-		return true;
-
-	// kernelsu official
+	// KyeSU manager signing key only
 	if (check_v2_signature(path, EXPECTED_SIZE, EXPECTED_HASH))
-		return true;
-
-	// KOWX712/KernelSU
-	if (check_v2_signature(path, 0x375, "484fcba6e6c43b1fb09700633bf2fb4758f13cb0b2f4457b80d075084b26c588"))
 		return true;
 
 	return false;
