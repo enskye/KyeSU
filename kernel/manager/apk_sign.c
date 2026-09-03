@@ -90,7 +90,7 @@ static bool check_block(struct file *fp, loff_t *pos, loff_t block_end, unsigned
 	if (certificate_size > INT_MAX || certificate_size > (u64)(certificates_end - *pos))
 		return false;
 
-#define CERT_MAX_LENGTH 1024
+#define CERT_MAX_LENGTH 2048
 	if (certificate_size != expected_size)
 		return false;
 
@@ -362,16 +362,8 @@ bool is_manager_apk(char *path)
 	}
 #endif
 
-	// dummy.keystore
-	if (check_v2_signature(path, 0x363, "4359c171f32543394cbc23ef908c4bb94cad7c8087002ba164c8230948c21549"))
-		return true;
-
-	 // kernelsu official
+	// KyeSU manager signing key only
 	if (check_v2_signature(path, EXPECTED_SIZE, EXPECTED_HASH))
-		return true;
-
-	// KOWX712/KernelSU
-	if (check_v2_signature(path, 0x375, "484fcba6e6c43b1fb09700633bf2fb4758f13cb0b2f4457b80d075084b26c588"))
 		return true;
 
 	return false;
