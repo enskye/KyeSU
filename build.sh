@@ -35,12 +35,15 @@ say(){ printf '\n\033[1;36m== %s\033[0m\n' "$*"; }
 if [ "$SYNC" = 1 ]; then
   say "sync onto upstream/master"
   git config rerere.enabled true
-  OLD="$(git rev-parse upstream/master)"
   git fetch upstream --quiet
+  # Base = backslashxx's own tip our commits sit on (its "KernelSU vX.Y.Z+"
+  # commit). Robust regardless of when upstream was last fetched.
+  BASE="$(git log --format='%H %s' main | grep -m1 -E '^[0-9a-f]+ KernelSU v[0-9]' | cut -d' ' -f1 || true)"
   NEW="$(git rev-parse upstream/master)"
-  if [ "$OLD" != "$NEW" ]; then
+  [ -n "$BASE" ] || { echo "!! could not find backslashxx base in main"; exit 1; }
+  if [ "$BASE" != "$NEW" ]; then
     git branch -f _bak main
-    if ! git rebase --onto upstream/master "$OLD" main; then
+    if ! git rebase --onto upstream/master "$BASE" main; then
       echo "!! rebase conflict — resolve manually (git rebase --continue), then re-run with --no-sync"; exit 1
     fi
     echo "rebased onto $NEW (backup: _bak)"
