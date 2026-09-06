@@ -157,7 +157,11 @@ endif
 # you can get optimized codegen especially around atomics.
 # hint: decode your own /proc/cpuinfo and check it here https://github.com/llvm/llvm-project/blob/main/llvm/lib/TargetParser/Host.cpp
 # comment it out and put your cpu / arch here
-# CFLAGS_ksu.o += -mcpu=cortex-a76 -mtune=cortex-a76
+# ISA baseline = weakest core (A520) so instructions are legal on all 8 cores;
+# tune for the A725 big cluster where hot code mostly runs. Enables LSE atomics.
+ifeq ($(CONFIG_ARM64),y)
+CFLAGS_ksu.o += $(call cc-option, -mcpu=cortex-a520 -mtune=cortex-a725)
+endif
 
 ifneq ($(CONFIG_KSU_DEBUG),y)
 # strip, remove tracing / profiling
