@@ -301,6 +301,13 @@ module_param_string(block_modules, ksu_block_modules, sizeof(ksu_block_modules),
 module_param(allow_shell, bool, 0); 
 #endif
 
+/*
+ * set by ksud via ramdisk ksu_config when the LKM shipped inside the manager
+ * is the one being loaded. manager shows "Custom" when this stays false.
+ */
+bool ksu_bundled = false;
+module_param_named(bundled, ksu_bundled, bool, 0);
+
 static int __init kernelsu_lkm_init(void)
 {
 	kernelsu_init();
