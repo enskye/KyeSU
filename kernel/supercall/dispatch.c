@@ -26,6 +26,8 @@ static int do_get_info(void __user *arg)
 	if (ksu_late_loaded) {
 		cmd.flags |= KSU_GET_INFO_FLAG_LATE_LOAD;
 	}
+	if (ksu_bundled)
+		cmd.flags |= KSU_GET_INFO_FLAG_BUNDLED;
 #endif
 
 	if (is_manager()) {
