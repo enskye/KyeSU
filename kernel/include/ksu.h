@@ -11,6 +11,10 @@ static bool allow_shell = true;
 static bool allow_shell = false;
 #endif
 
+#ifdef MODULE
+extern bool ksu_bundled;
+#endif
+
 static inline int startswith(char *s, char *prefix)
 {
 	return strncmp(s, prefix, strlen(prefix));
