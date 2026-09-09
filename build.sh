@@ -29,6 +29,22 @@ for a in "$@"; do case "$a" in
   --no-sync) SYNC=0;; --no-install) INSTALL=0;; --push) PUSH=1;; --skip-lkm) LKM=0;;
   *) echo "unknown arg: $a"; exit 2;; esac; done
 
+# Rebase, letting scripts/rebase-resolve.sh handle the recurring conflicts.
+rebase_onto() {
+  git rebase --onto upstream/master "$1" main && return 0
+  while [ -d .git/rebase-merge ] || [ -d .git/rebase-apply ]; do
+    if ! sh scripts/rebase-resolve.sh; then
+      return 1
+    fi
+    if git diff --cached --quiet; then
+      GIT_EDITOR=true git rebase --skip || return 1
+    else
+      GIT_EDITOR=true git rebase --continue || return 1
+    fi
+  done
+  return 0
+}
+
 say(){ printf '\n\033[1;36m== %s\033[0m\n' "$*"; }
 
 # ---- 1. sync onto latest upstream ----
@@ -43,8 +59,8 @@ if [ "$SYNC" = 1 ]; then
   [ -n "$BASE" ] || { echo "!! could not find backslashxx base in main"; exit 1; }
   if [ "$BASE" != "$NEW" ]; then
     git branch -f _bak main
-    if ! git rebase --onto upstream/master "$BASE" main; then
-      echo "!! rebase conflict — resolve manually (git rebase --continue), then re-run with --no-sync"; exit 1
+    if ! rebase_onto "$BASE"; then
+      echo "!! unresolved rebase conflict — fix it, git rebase --continue, then re-run with --no-sync"; exit 1
     fi
     echo "rebased onto $NEW (backup: _bak)"
   else
