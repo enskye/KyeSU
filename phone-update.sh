@@ -12,6 +12,22 @@
 set -eu
 cd "$(dirname "$(readlink -f "$0")")"
 
+# Rebase, letting scripts/rebase-resolve.sh handle the recurring conflicts.
+rebase_onto() {
+  git rebase --onto upstream/master "$1" main && return 0
+  while [ -d .git/rebase-merge ] || [ -d .git/rebase-apply ]; do
+    if ! sh scripts/rebase-resolve.sh; then
+      return 1
+    fi
+    if git diff --cached --quiet; then
+      GIT_EDITOR=true git rebase --skip || return 1
+    else
+      GIT_EDITOR=true git rebase --continue || return 1
+    fi
+  done
+  return 0
+}
+
 git config rerere.enabled true
 git remote get-url upstream >/dev/null 2>&1 || \
   git remote add upstream https://github.com/backslashxx/KernelSU.git
@@ -29,9 +45,9 @@ if [ "$BASE" = "$NEW" ]; then
   echo "already on latest upstream ($NEW) — nothing to rebase"
 else
   git branch -f _bak main
-  if ! git rebase --onto upstream/master "$BASE" main; then
+  if ! rebase_onto "$BASE"; then
     git rebase --abort || true; git branch -D _bak || true
-    echo "!! rebase conflict — resolve on desktop (build.sh), then push"; exit 1
+    echo "!! unresolved rebase conflict — finish it on desktop (build.sh), then push"; exit 1
   fi
   git branch -D _bak || true
   echo "rebased onto $NEW"
