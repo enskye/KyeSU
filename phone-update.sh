@@ -12,6 +12,45 @@
 set -eu
 cd "$(dirname "$(readlink -f "$0")")"
 
+# Base = the backslashxx tip our commits sit on. Remembered in refs/kyesu/base
+# by the previous run; the "KernelSU vX.Y.Z+" commit title is the fallback for
+# a tree that has never been synced by these scripts.
+find_base() {
+  if git rev-parse -q --verify refs/kyesu/base >/dev/null &&
+     git merge-base --is-ancestor refs/kyesu/base main; then
+    git rev-parse refs/kyesu/base
+    return 0
+  fi
+  git log --format='%H %s' main | grep -m1 -E '^[0-9a-f]+ KernelSU v[0-9]' | cut -d' ' -f1
+}
+
+# Rebase, letting scripts/rebase-resolve.sh handle the recurring conflicts.
+rebase_onto() {
+  # The resolver is added by one of the commits being replayed, so a conflict
+  # in an earlier one would find no script in the tree: run a copy taken now.
+  R="$(git rev-parse --git-dir)/kyesu-rebase-resolve.sh"
+  cp scripts/rebase-resolve.sh "$R"
+  git rebase --onto upstream/master "$1" main && return 0
+  while [ -d "$(git rev-parse --git-path rebase-merge)" ] || [ -d "$(git rev-parse --git-path rebase-apply)" ]; do
+    if ! sh "$R"; then
+      return 1
+    fi
+    # A resolution that leaves nothing staged means the commit became empty
+    # (upstream already has it), so skip it; otherwise carry on. Either step
+    # can still fail -- show git's reason instead of stopping silently.
+    if git diff --cached --quiet; then
+      step="--skip"
+    else
+      step="--continue"
+    fi
+    if ! out="$(GIT_EDITOR=true git rebase $step 2>&1)"; then
+      printf '%s\n' "$out" | tail -5
+      return 1
+    fi
+  done
+  return 0
+}
+
 git config rerere.enabled true
 git remote get-url upstream >/dev/null 2>&1 || \
   git remote add upstream https://github.com/backslashxx/KernelSU.git
@@ -27,9 +66,7 @@ if [ "$(git rev-parse main)" != "$(git rev-parse origin/main)" ]; then
   exit 1
 fi
 
-# Base = backslashxx's own tip that our commits sit on (its version-bump commit,
-# titled "KernelSU vX.Y.Z+"). Robust regardless of when upstream was fetched.
-BASE="$(git log --format='%H %s' main | grep -m1 -E '^[0-9a-f]+ KernelSU v[0-9]' | cut -d' ' -f1 || true)"
+BASE="$(find_base || true)"
 NEW="$(git rev-parse upstream/master)"
 
 if [ -z "$BASE" ]; then
@@ -39,13 +76,14 @@ if [ "$BASE" = "$NEW" ]; then
   echo "already on latest upstream ($NEW) — nothing to rebase"
 else
   git branch -f _bak main
-  if ! git rebase --onto upstream/master "$BASE" main; then
-    git rebase --abort || true; git branch -D _bak || true
-    echo "!! rebase conflict — resolve on desktop (build.sh), then push"; exit 1
+  if ! rebase_onto "$BASE"; then
+    echo "!! unresolved rebase conflict (base $BASE -> $NEW)"
+    echo "   rebase and _bak left in place — finish it on desktop (build.sh), then push"
+    exit 1
   fi
-  git branch -D _bak || true
-  echo "rebased onto $NEW"
+  git update-ref refs/kyesu/base "$NEW"
+  echo "rebased onto $NEW (backup: _bak)"
 fi
 
-git push --force origin main
+git push --force-with-lease origin main
 echo "pushed — now run the CI build manually"
