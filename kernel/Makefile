@@ -18,7 +18,7 @@ ifeq ($(KSU_GIT_VERSION),)
 KSU_VERSION := 32628
 $(warning -- KernelSU: git unavailable, fallback KSU_VERSION=$(KSU_VERSION))
 else
-KSU_VERSION := $(shell expr 30000 + $(KSU_GIT_VERSION) - 97)
+KSU_VERSION := $(shell expr 30000 + $(KSU_GIT_VERSION) - 95)
 endif
 $(info -- KernelSU version: $(KSU_VERSION))
 CFLAGS_ksu.o += -DKSU_VERSION=$(KSU_VERSION)
