@@ -52,13 +52,12 @@ done
 
 # the manager's versionCode formula is the source of truth for KSU_VERSION
 if [ "$rc" = 0 ]; then
-	off="$(sed -n 's/.*return 30000 + commitCount - \([0-9][0-9]*\).*/\1/p' manager/build.gradle.kts | head -1)"
-	if [ -z "$off" ] && grep -q 'return 30000 + commitCount *$' manager/build.gradle.kts; then
-		off=0
-	fi
-	if [ -n "$off" ] && ! grep -q "KSU_GIT_VERSION) - $off)" kernel/Makefile; then
-		sed -i "s/expr 30000 + \$(KSU_GIT_VERSION) - [0-9][0-9]*/expr 30000 + \$(KSU_GIT_VERSION) - $off/" kernel/Makefile
-		echo "-- KSU_VERSION offset synced to manager ($off)"
+	# " - N" if the manager subtracts an offset, empty if it does not
+	off="$(sed -n 's/.*return 30000 + commitCount\( - [0-9][0-9]*\)* *$/\1/p' manager/build.gradle.kts | head -1)"
+	want="expr 30000 + \$(KSU_GIT_VERSION)$off"
+	if ! grep -qF "$want)" kernel/Makefile; then
+		sed -i "s|expr 30000 + \$(KSU_GIT_VERSION)\( - [0-9]*\)\{0,1\}|$want|" kernel/Makefile
+		echo "-- KSU_VERSION formula synced to manager (30000 + count$off)"
 		if [ -d "$(git rev-parse --git-path rebase-merge)" ] ||
 		   [ -d "$(git rev-parse --git-path rebase-apply)" ]; then
 			git add kernel/Makefile
