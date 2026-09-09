@@ -29,6 +29,18 @@ for a in "$@"; do case "$a" in
   --no-sync) SYNC=0;; --no-install) INSTALL=0;; --push) PUSH=1;; --skip-lkm) LKM=0;;
   *) echo "unknown arg: $a"; exit 2;; esac; done
 
+# Base = the backslashxx tip our commits sit on. Remembered in refs/kyesu/base
+# by the previous run; the "KernelSU vX.Y.Z+" commit title is the fallback for
+# a tree that has never been synced by these scripts.
+find_base() {
+  if git rev-parse -q --verify refs/kyesu/base >/dev/null &&
+     git merge-base --is-ancestor refs/kyesu/base main; then
+    git rev-parse refs/kyesu/base
+    return 0
+  fi
+  git log --format='%H %s' main | grep -m1 -E '^[0-9a-f]+ KernelSU v[0-9]' | cut -d' ' -f1
+}
+
 # Rebase, letting scripts/rebase-resolve.sh handle the recurring conflicts.
 rebase_onto() {
   git rebase --onto upstream/master "$1" main && return 0
@@ -52,16 +64,17 @@ if [ "$SYNC" = 1 ]; then
   say "sync onto upstream/master"
   git config rerere.enabled true
   git fetch upstream --quiet
-  # Base = backslashxx's own tip our commits sit on (its "KernelSU vX.Y.Z+"
-  # commit). Robust regardless of when upstream was last fetched.
-  BASE="$(git log --format='%H %s' main | grep -m1 -E '^[0-9a-f]+ KernelSU v[0-9]' | cut -d' ' -f1 || true)"
+  BASE="$(find_base || true)"
   NEW="$(git rev-parse upstream/master)"
   [ -n "$BASE" ] || { echo "!! could not find backslashxx base in main"; exit 1; }
   if [ "$BASE" != "$NEW" ]; then
     git branch -f _bak main
     if ! rebase_onto "$BASE"; then
-      echo "!! unresolved rebase conflict — fix it, git rebase --continue, then re-run with --no-sync"; exit 1
+      echo "!! unresolved rebase conflict (base $BASE -> $NEW)"
+      echo "   rebase left in place; finish it, or: git rebase --abort && git reset --hard _bak"
+      exit 1
     fi
+    git update-ref refs/kyesu/base "$NEW"
     echo "rebased onto $NEW (backup: _bak)"
   else
     echo "upstream unchanged ($NEW)"
@@ -114,7 +127,7 @@ if [ "$PUSH" = 1 ]; then
   say "push"
   git log main ^upstream/master --format='%b' | grep -qi 'co-authored\|claude' \
     && { echo '!! refusing: claude trailer found'; exit 1; } || true
-  git push --force origin main
+  git push --force-with-lease origin main
 fi
 
 git checkout -- Cargo.lock 2>/dev/null || true

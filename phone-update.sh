@@ -12,6 +12,18 @@
 set -eu
 cd "$(dirname "$(readlink -f "$0")")"
 
+# Base = the backslashxx tip our commits sit on. Remembered in refs/kyesu/base
+# by the previous run; the "KernelSU vX.Y.Z+" commit title is the fallback for
+# a tree that has never been synced by these scripts.
+find_base() {
+  if git rev-parse -q --verify refs/kyesu/base >/dev/null &&
+     git merge-base --is-ancestor refs/kyesu/base main; then
+    git rev-parse refs/kyesu/base
+    return 0
+  fi
+  git log --format='%H %s' main | grep -m1 -E '^[0-9a-f]+ KernelSU v[0-9]' | cut -d' ' -f1
+}
+
 # Rebase, letting scripts/rebase-resolve.sh handle the recurring conflicts.
 rebase_onto() {
   git rebase --onto upstream/master "$1" main && return 0
@@ -33,9 +45,7 @@ git remote get-url upstream >/dev/null 2>&1 || \
   git remote add upstream https://github.com/backslashxx/KernelSU.git
 git fetch upstream --quiet
 
-# Base = backslashxx's own tip that our commits sit on (its version-bump commit,
-# titled "KernelSU vX.Y.Z+"). Robust regardless of when upstream was fetched.
-BASE="$(git log --format='%H %s' main | grep -m1 -E '^[0-9a-f]+ KernelSU v[0-9]' | cut -d' ' -f1 || true)"
+BASE="$(find_base || true)"
 NEW="$(git rev-parse upstream/master)"
 
 if [ -z "$BASE" ]; then
@@ -46,12 +56,13 @@ if [ "$BASE" = "$NEW" ]; then
 else
   git branch -f _bak main
   if ! rebase_onto "$BASE"; then
-    git rebase --abort || true; git branch -D _bak || true
-    echo "!! unresolved rebase conflict — finish it on desktop (build.sh), then push"; exit 1
+    echo "!! unresolved rebase conflict (base $BASE -> $NEW)"
+    echo "   rebase and _bak left in place — finish it on desktop (build.sh), then push"
+    exit 1
   fi
-  git branch -D _bak || true
-  echo "rebased onto $NEW"
+  git update-ref refs/kyesu/base "$NEW"
+  echo "rebased onto $NEW (backup: _bak)"
 fi
 
-git push --force origin main
+git push --force-with-lease origin main
 echo "pushed — now run the CI build manually"
