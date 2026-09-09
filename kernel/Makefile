@@ -13,12 +13,26 @@ $(info -- MDIR: $(MDIR))
 
 # version must match getVersionCode() in manager/build.gradle.kts
 # fallback = last upstream hand-bumped value (kernel change aa08b39)
-KSU_GIT_VERSION := $(shell cd $(MDIR) && git rev-list --count HEAD 2>/dev/null)
-ifeq ($(KSU_GIT_VERSION),)
-KSU_VERSION := 32628
-$(warning -- KernelSU: git unavailable, fallback KSU_VERSION=$(KSU_VERSION))
+# the commit count only means something in our own complete repository: a
+# shallow clone or a KernelSU vendored into the kernel tree counts something
+# else entirely, and would do it silently.
+KSU_GIT_ROOT := $(shell cd $(MDIR) && git rev-parse --show-toplevel 2>/dev/null)
+KSU_KERNEL_GIT_ROOT := $(shell cd $(srctree) 2>/dev/null && git rev-parse --show-toplevel 2>/dev/null)
+KSU_NO_GIT :=
+ifeq ($(KSU_GIT_ROOT),)
+KSU_NO_GIT := not a git repository
+else ifeq ($(KSU_GIT_ROOT),$(KSU_KERNEL_GIT_ROOT))
+KSU_NO_GIT := shares the kernel git tree
+else ifeq ($(shell cd $(MDIR) && git rev-parse --is-shallow-repository 2>/dev/null),true)
+KSU_NO_GIT := shallow clone
+endif
+
+ifeq ($(KSU_NO_GIT),)
+KSU_GIT_VERSION := $(shell cd $(MDIR) && git rev-list --count HEAD)
+KSU_VERSION := $(shell expr 30000 + $(KSU_GIT_VERSION))
 else
-KSU_VERSION := $(shell expr 30000 + $(KSU_GIT_VERSION) - 95)
+KSU_VERSION := 32628
+$(warning -- KernelSU: $(KSU_NO_GIT), fallback KSU_VERSION=$(KSU_VERSION))
 endif
 $(info -- KernelSU version: $(KSU_VERSION))
 CFLAGS_ksu.o += -DKSU_VERSION=$(KSU_VERSION)
