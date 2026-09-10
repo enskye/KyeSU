@@ -118,6 +118,10 @@ echo "APK: $APK"
 # ---- 6. install ----
 if [ "$INSTALL" = 1 ]; then
   say "install to phone"
+  if [ "$(adb get-state 2>/dev/null)" != "device" ]; then
+    echo "!! no adb device — plug the phone in (or adb connect), then: adb install -r -d $APK"
+    exit 1
+  fi
   adb install -r -d "$APK"
   adb shell dumpsys package lt.kye.ksu 2>/dev/null | grep -iE 'versionCode' | head -1 || true
 fi

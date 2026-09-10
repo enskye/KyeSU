@@ -44,6 +44,16 @@ git config rerere.enabled true
 git remote get-url upstream >/dev/null 2>&1 || \
   git remote add upstream https://github.com/backslashxx/KernelSU.git
 git fetch upstream --quiet
+git fetch origin --quiet
+
+# This tree always starts from what is on origin: main is force-pushed from
+# both here and the desktop, so anything else means the other side pushed work
+# this clone has never seen, and pushing over it would drop it.
+if [ "$(git rev-parse main)" != "$(git rev-parse origin/main)" ]; then
+  echo "!! main and origin/main differ — the desktop has pushed since the last sync"
+  echo "   git reset --hard origin/main   # then re-run this script"
+  exit 1
+fi
 
 BASE="$(find_base || true)"
 NEW="$(git rev-parse upstream/master)"
