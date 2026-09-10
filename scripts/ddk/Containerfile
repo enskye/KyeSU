@@ -1,0 +1,13 @@
+# The DDK image ships the clang the GKI kernel was built with (19.0.1). That one
+# emits 811 instructions across the hooked syscall paths where clang 22 emits
+# 776, and gives ksu_do_faccessat / ksu_vfs_fstatat a 0x50 stack frame instead
+# of 0x30. clang 20 and 21 are identical to 19 there, so 22 is the first version
+# worth adding. CI installs the same thing at run time via install-clang.sh.
+ARG DDK_IMAGE=ghcr.io/ylarod/ddk-min:android16-6.12-20260828
+FROM ${DDK_IMAGE}
+
+ARG LLVM_VERSION=22
+COPY install-clang.sh /tmp/install-clang.sh
+RUN sh /tmp/install-clang.sh "$LLVM_VERSION" && rm /tmp/install-clang.sh
+
+ENV PATH=/opt/tc/bin:$PATH
