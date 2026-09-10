@@ -11,6 +11,9 @@
 #
 # Config via env (sensible defaults for this machine):
 #   ANDROID_NDK_HOME, ANDROID_HOME, DDK_IMAGE, KMI, KS_PASS, KS_ALIAS
+#   KSU_IMAGE  image to build the LKM in; defaults to the one
+#              scripts/ddk/build-image.sh produces (DDK + clang 22), and falls
+#              back to DDK_IMAGE, with its own clang, when that is not built
 set -euo pipefail
 cd "$(dirname "$(readlink -f "$0")")"
 
@@ -22,6 +25,11 @@ NDK="${ANDROID_NDK_HOME:-$(ls -d "$HOME"/Android/Sdk/ndk/* 2>/dev/null | sort -V
 [ -d "$NDK" ] || NDK="$(ls -d "$HOME"/Projects/VPN/android-sdk/ndk/* 2>/dev/null | sort -V | tail -1)"
 KS="$PWD/manager/kyesu.keystore"; KS_PASS="${KS_PASS:-password}"; KS_ALIAS="${KS_ALIAS:-kyesu}"
 STRIP="$NDK/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-strip"
+KSU_IMAGE="${KSU_IMAGE:-localhost/kyesu-ddk:$KMI}"
+podman image exists "$KSU_IMAGE" 2>/dev/null || {
+  echo "-- $KSU_IMAGE not built (scripts/ddk/build-image.sh), using $DDK_IMAGE"
+  KSU_IMAGE="$DDK_IMAGE"
+}
 export PATH="$HOME/.cargo/bin:$PATH"
 
 SYNC=1 INSTALL=1 PUSH=0 LKM=1
@@ -87,9 +95,9 @@ fi
 
 # ---- 2. LKM (kernelsu.ko) via DDK container ----
 if [ "$LKM" = 1 ]; then
-  say "build LKM ($KMI) in $DDK_IMAGE"
-  podman run --rm --network none -v "$PWD":/ksu:Z -w /ksu/kernel "$DDK_IMAGE" \
-    bash -c 'git config --global --add safe.directory "*"; CONFIG_KSU=m CC=clang make >/dev/null'
+  say "build LKM ($KMI) in $KSU_IMAGE"
+  podman run --rm --network none -v "$PWD":/ksu:Z -w /ksu/kernel "$KSU_IMAGE" \
+    bash -c 'git config --global --add safe.directory "*"; clang --version | head -1; CONFIG_KSU=m CC=clang make >/dev/null'
   cp -f kernel/ksu.ko "userspace/ksud/bin/aarch64/${KMI}_kernelsu.ko"
   "$STRIP" -d "userspace/ksud/bin/aarch64/${KMI}_kernelsu.ko"
   find kernel -maxdepth 1 \( -name '*.o' -o -name '*.cmd' -o -name '*.ko' -o -name '*.mod*' \
