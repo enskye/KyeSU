@@ -8,9 +8,14 @@
 #   ./build.sh --no-sync    # skip the upstream rebase, just build what's here
 #   ./build.sh --no-install # build only, don't adb install
 #   ./build.sh --skip-lkm   # reuse the existing bundled .ko (no podman rebuild)
+#   ./build.sh --all-kmi    # also rebuild the other KMIs' .ko, in their stock
+#                           # DDK images (pulled on first use, ~9 GB together)
 #
 # Config via env (sensible defaults for this machine):
 #   ANDROID_NDK_HOME, ANDROID_HOME, DDK_IMAGE, KMI, KS_PASS, KS_ALIAS
+#   KSU_IMAGE  image to build the LKM in; defaults to the one
+#              scripts/ddk/build-image.sh produces (DDK + clang 22), and falls
+#              back to DDK_IMAGE, with its own clang, when that is not built
 set -euo pipefail
 cd "$(dirname "$(readlink -f "$0")")"
 
@@ -22,11 +27,20 @@ NDK="${ANDROID_NDK_HOME:-$(ls -d "$HOME"/Android/Sdk/ndk/* 2>/dev/null | sort -V
 [ -d "$NDK" ] || NDK="$(ls -d "$HOME"/Projects/VPN/android-sdk/ndk/* 2>/dev/null | sort -V | tail -1)"
 KS="$PWD/manager/kyesu.keystore"; KS_PASS="${KS_PASS:-password}"; KS_ALIAS="${KS_ALIAS:-kyesu}"
 STRIP="$NDK/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-strip"
+KSU_IMAGE="${KSU_IMAGE:-localhost/kyesu-ddk:$KMI}"
+podman image exists "$KSU_IMAGE" 2>/dev/null || {
+  echo "-- $KSU_IMAGE not built (scripts/ddk/build-image.sh), using $DDK_IMAGE"
+  KSU_IMAGE="$DDK_IMAGE"
+}
 export PATH="$HOME/.cargo/bin:$PATH"
 
-SYNC=1 INSTALL=1 PUSH=0 LKM=1
+# Same list as .github/workflows/build-lkm.yml.
+ALL_KMIS="android12-5.10 android13-5.10 android13-5.15 android14-5.15 android14-6.1 android15-6.6 android16-6.12 android17-6.18"
+
+SYNC=1 INSTALL=1 PUSH=0 LKM=1 ALL_KMI=0
 for a in "$@"; do case "$a" in
   --no-sync) SYNC=0;; --no-install) INSTALL=0;; --push) PUSH=1;; --skip-lkm) LKM=0;;
+  --all-kmi) ALL_KMI=1;;
   *) echo "unknown arg: $a"; exit 2;; esac; done
 
 # Base = the backslashxx tip our commits sit on. Remembered in refs/kyesu/base
@@ -93,14 +107,27 @@ if [ "$SYNC" = 1 ]; then
 fi
 
 # ---- 2. LKM (kernelsu.ko) via DDK container ----
-if [ "$LKM" = 1 ]; then
-  say "build LKM ($KMI) in $DDK_IMAGE"
-  podman run --rm --network none -v "$PWD":/ksu:Z -w /ksu/kernel "$DDK_IMAGE" \
-    bash -c 'git config --global --add safe.directory "*"; CONFIG_KSU=m CC=clang make >/dev/null'
-  cp -f kernel/ksu.ko "userspace/ksud/bin/aarch64/${KMI}_kernelsu.ko"
-  "$STRIP" -d "userspace/ksud/bin/aarch64/${KMI}_kernelsu.ko"
+build_lkm() { # kmi image
+  say "build LKM ($1) in $2"
+  podman run --rm --network none -v "$PWD":/ksu:Z -w /ksu/kernel "$2" \
+    bash -c 'git config --global --add safe.directory "*"; clang --version | head -1; CONFIG_KSU=m CC=clang make >/dev/null'
+  cp -f kernel/ksu.ko "userspace/ksud/bin/aarch64/${1}_kernelsu.ko"
+  "$STRIP" -d "userspace/ksud/bin/aarch64/${1}_kernelsu.ko"
   find kernel -maxdepth 1 \( -name '*.o' -o -name '*.cmd' -o -name '*.ko' -o -name '*.mod*' \
     -o -name 'Module.symvers' -o -name 'modules.order' \) -delete 2>/dev/null || true
+}
+if [ "$LKM" = 1 ]; then
+  build_lkm "$KMI" "$KSU_IMAGE"
+  # The other KMIs use their image's own clang, like CI: 5.10/5.15 do not
+  # build with clang 22 (-Werror,-Wstrict-prototypes).
+  if [ "$ALL_KMI" = 1 ]; then
+    for k in $ALL_KMIS; do
+      [ "$k" = "$KMI" ] && continue
+      img="ghcr.io/ylarod/ddk-min:${k}-${DDK_IMAGE##*-}"
+      podman image exists "$img" || podman pull -q "$img" >/dev/null
+      build_lkm "$k" "$img"
+    done
+  fi
 fi
 
 # ---- 3. ksuinit (only if missing; source rarely changes) ----
