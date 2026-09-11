@@ -37,6 +37,14 @@ jobs:
       with:
         fetch-depth: 0
 
+    - name: Install clang 22
+      # Same toolchain as local builds (scripts/ddk/Containerfile), installed
+      # here rather than published as an image: a private GHCR package of it
+      # would blow the 500 MB free storage, this is an ~84 MB download.
+      run: |
+        sh scripts/ddk/install-clang.sh 22
+        echo /opt/tc/bin >> "$GITHUB_PATH"
+
     - name: Build kernelsu.ko
       env:
         EXPECTED_SIZE2: ${{ inputs.expected_size2 }}
@@ -60,6 +68,7 @@ jobs:
         if [ -n "$EXPECTED_SIZE2" ]; then
           EXTRA_ARGS="KSU_EXPECTED_SIZE2=$EXPECTED_SIZE2 KSU_EXPECTED_HASH2=$EXPECTED_HASH2"
         fi
+        clang --version | head -1
         CONFIG_KSU=m CC=clang make $EXTRA_ARGS
         
         echo "=== Build completed ==="
