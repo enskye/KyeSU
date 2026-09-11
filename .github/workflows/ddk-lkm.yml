@@ -42,6 +42,17 @@ jobs:
       with:
         fetch-depth: 0
 
+    - name: Install clang 22
+      # Same toolchain as local builds (scripts/ddk/Containerfile), installed
+      # here rather than published as an image: a private GHCR package of it
+      # would blow the 500 MB free storage, this is an ~84 MB download.
+      # Only for the target phone's KMI; the others keep the image's clang,
+      # as 5.10/5.15 fail with clang 22 (-Werror,-Wstrict-prototypes).
+      if: inputs.kmi == 'android16-6.12'
+      run: |
+        sh scripts/ddk/install-clang.sh 22
+        echo /opt/tc/bin >> "$GITHUB_PATH"
+
     - name: Build kernelsu.ko
       env:
         PACKAGE_NAME: ${{ inputs.package_name }}
@@ -67,6 +78,7 @@ jobs:
         if [ "${{ github.event_name }}" = "pull_request" ]; then
           EXTRA_ARGS="$EXTRA_ARGS KSU_IS_PR_BUILD=1"
         fi
+        clang --version | head -1
         CONFIG_KSU=m CC=clang make $EXTRA_ARGS
         
         echo "=== Build completed ==="
