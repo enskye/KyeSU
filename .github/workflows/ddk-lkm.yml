@@ -42,6 +42,29 @@ jobs:
       with:
         fetch-depth: 0
 
+    - name: Install clang 22
+      # From apt.llvm.org rather than published as an image: a private GHCR
+      # package of it would blow the 500 MB free storage, this is an ~84 MB
+      # download. Only for the target phone's KMI; the others keep the image's
+      # clang, as 5.10/5.15 fail with clang 22 (-Werror,-Wstrict-prototypes).
+      if: inputs.kmi == 'android16-6.12'
+      run: |
+        V=22
+        apt-get update -qq
+        apt-get install -y -qq --no-install-recommends wget gnupg ca-certificates
+        . /etc/os-release
+        wget -qO /usr/share/keyrings/llvm.asc https://apt.llvm.org/llvm-snapshot.gpg.key
+        echo "deb [signed-by=/usr/share/keyrings/llvm.asc] http://apt.llvm.org/$VERSION_CODENAME/ llvm-toolchain-$VERSION_CODENAME-$V main" \
+          > /etc/apt/sources.list.d/llvm.list
+        apt-get update -qq
+        apt-get install -y -qq --no-install-recommends "clang-$V" "lld-$V" "llvm-$V"
+        # kbuild here picks the compiler off PATH and ignores CC= on the command line
+        mkdir -p /opt/tc/bin
+        for t in clang ld.lld llvm-ar llvm-nm llvm-objcopy llvm-objdump llvm-readelf llvm-strip llvm-size; do
+          ln -sf "/usr/bin/$t-$V" "/opt/tc/bin/$t"
+        done
+        echo /opt/tc/bin >> "$GITHUB_PATH"
+
     - name: Build kernelsu.ko
       env:
         PACKAGE_NAME: ${{ inputs.package_name }}
@@ -67,6 +90,7 @@ jobs:
         if [ "${{ github.event_name }}" = "pull_request" ]; then
           EXTRA_ARGS="$EXTRA_ARGS KSU_IS_PR_BUILD=1"
         fi
+        clang --version | head -1
         CONFIG_KSU=m CC=clang make $EXTRA_ARGS
         
         echo "=== Build completed ==="
