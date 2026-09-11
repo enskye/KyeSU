@@ -164,6 +164,14 @@ endif
 # hint: decode your own /proc/cpuinfo and check it here https://github.com/llvm/llvm-project/blob/main/llvm/lib/TargetParser/Host.cpp
 # comment it out and put your cpu / arch here
 # CFLAGS_ksu.o += -mcpu=cortex-a76 -mtune=cortex-a76
+# KyeSU: every core on the target phone is ARMv9.2. The kernel hands the
+# compiler no -march (only -Wa,-march=armv8.5-a), so C code is generated for
+# base armv8 and returns through hint-space autiasp+ret; with the real ISA each
+# function returns with a single retaa. Tuning is left alone: -mcpu/-mtune were
+# measured to only grow the cold code. Not portable to pre-ARMv8.3 CPUs.
+ifeq ($(CONFIG_ARM64),y)
+CFLAGS_ksu.o += $(call cc-option, -march=armv9.2-a)
+endif
 
 ifneq ($(CONFIG_KSU_DEBUG),y)
 # strip, remove tracing / profiling
