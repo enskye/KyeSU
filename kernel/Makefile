@@ -167,6 +167,10 @@ ifeq ($(CONFIG_ARM64)-$(VERSION).$(PATCHLEVEL),y-6.12)
 CFLAGS_ksu.o += $(call cc-option, -march=armv9.2-a)
 endif
 
+# KyeSU: the target phone has no AArch32 userspace, so skip hooking the compat
+# syscalls. Kconfig is not read for the LKM, hence the define here.
+CFLAGS_ksu.o += -DCONFIG_KSU_DISABLE_32BIT_HOOKS
+
 ifneq ($(CONFIG_KSU_DEBUG),y)
 # strip, remove tracing / profiling
 # comment out if proper backtrace is needed
