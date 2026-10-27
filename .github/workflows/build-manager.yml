@@ -259,3 +259,19 @@ jobs:
           name: manager
           path: dist/*.apk
 
+
+      - name: Upload to telegram
+        if: github.event_name != 'pull_request' && steps.need_upload.outputs.UPLOAD == 'true'
+        env:
+          CHAT_ID: ${{ secrets.CHAT_ID }}
+          BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
+          MESSAGE_THREAD_ID: ${{ secrets.MESSAGE_THREAD_ID }}
+          GITHUB_EVENT: ${{ toJson(github.event) }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          TITLE: KyeSU
+          BRANCH: ${{ github.ref_name }}
+        run: |
+          export VERSION=$((30000 + $(git rev-list --count HEAD)))
+          APK=$(find ./dist -name "*.apk")
+          pip3 install telethon
+          python3 $GITHUB_WORKSPACE/scripts/ksubot.py $APK
