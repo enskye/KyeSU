@@ -134,6 +134,12 @@
 #include "feature/kernel_umount.c"
 #include "feature/selinux_hide.c"
 #include "feature/shell_su_adb_only.c"
+
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 19, 0) && defined(CONFIG_ARM64) && defined(CONFIG_KALLSYMS)
+#define KSU_CAN_USE_GETPRIORITY_HIDE
+#include "feature/getpriority_hide.c"
+#endif
+
 #include "feature/sucompat.c"
 #include "feature/sulog.c"
 #include "runtime/boot_event.c"
@@ -275,6 +281,10 @@ static int __init kernelsu_init(void)
 #endif
 	ksu_selinux_hide_init();
 	ksu_shell_su_adb_only_init();
+#ifdef KSU_CAN_USE_GETPRIORITY_HIDE
+	ksu_getpriority_hide_init();
+#endif
+
 	ksu_supercalls_init();
 
 #if defined(CONFIG_KSU_KPROBES_KSUD) && !defined(CONFIG_KSU_TAMPER_SYSCALL_TABLE) && !defined(CONFIG_KSU_HACK_ARM64_BRANCH_LINK)
