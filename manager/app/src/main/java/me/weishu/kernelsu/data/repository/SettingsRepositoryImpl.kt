@@ -207,6 +207,15 @@ class SettingsRepositoryImpl : SettingsRepository {
 
     override fun setSelinuxHideEnabled(enabled: Boolean): Int = Natives.setSelinuxHideEnabled(enabled)
 
+    override suspend fun getGetpriorityHideStatus(): String = getFeatureStatus("getpriority_hide")
+
+    override suspend fun getGetpriorityHidePersistValue(): Long? = getFeaturePersistValue("getpriority_hide")
+
+    override suspend fun getGetpriorityHideValue(): Long? = getFeatureValue("getpriority_hide")
+
+    override fun setGetpriorityHideEnabled(enabled: Boolean): Boolean =
+        execKsud("feature set getpriority_hide ${if (enabled) 1 else 0}", true)
+
     override suspend fun getSulogStatus(): String = getFeatureStatus("sulog")
 
     override suspend fun getSulogPersistValue(): Long? = getFeaturePersistValue("sulog")

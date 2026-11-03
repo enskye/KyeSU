@@ -229,6 +229,8 @@
     <string name="settings_selinux_hide_summary">Prevent applications from detecting SELinux modifications</string>
     <string name="settings_selinux_hide_reboot_required">Reboot to take effect</string>
     <string name="settings_selinux_hide_failed">Error: %d</string>
+    <string name="settings_getpriority_hide">Hide running apps</string>
+    <string name="settings_getpriority_hide_summary">Prevent applications from detecting whether other apps are running through getpriority / ioprio calls</string>
     <string name="settings_sulog">SU Log</string>
     <string name="settings_sulog_summary">Record Root-related events into KernelSU sulog files</string>
     <string name="feature_status_unsupported_summary">Kernel does not support this feature</string>
