@@ -32,6 +32,7 @@ import androidx.compose.material.icons.rounded.Security
 import androidx.compose.material.icons.rounded.SystemUpdate
 import androidx.compose.material.icons.rounded.SystemUpdateAlt
 import androidx.compose.material.icons.rounded.VerifiedUser
+import androidx.compose.material.icons.rounded.VisibilityOff
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -279,6 +280,28 @@ fun SettingPagerMiuix(
                                 enabled = uiState.selinuxHideStatus == "supported",
                                 checked = uiState.isSelinuxHideEnabled,
                                 onCheckedChange = actions.onSetSelinuxHideEnabled
+                            )
+
+                            val getpriorityHideSummary = when (uiState.getpriorityHideStatus) {
+                                "unsupported" -> stringResource(id = R.string.feature_status_unsupported_summary)
+                                "managed" -> stringResource(id = R.string.feature_status_managed_summary)
+                                "forced" -> stringResource(id = R.string.feature_status_forced_summary)
+                                else -> stringResource(id = R.string.settings_getpriority_hide_summary)
+                            }
+                            SwitchPreference(
+                                title = stringResource(id = R.string.settings_getpriority_hide),
+                                summary = getpriorityHideSummary,
+                                startAction = {
+                                    Icon(
+                                        Icons.Rounded.VisibilityOff,
+                                        modifier = Modifier.padding(end = 6.dp),
+                                        contentDescription = stringResource(id = R.string.settings_getpriority_hide),
+                                        tint = if (uiState.getpriorityHideStatus == "supported") colorScheme.onBackground else colorScheme.disabledOnSecondaryVariant
+                                    )
+                                },
+                                enabled = uiState.getpriorityHideStatus == "supported",
+                                checked = uiState.isGetpriorityHideEnabled,
+                                onCheckedChange = actions.onSetGetpriorityHideEnabled
                             )
 
                             val sulogSummary = when (uiState.sulogStatus) {

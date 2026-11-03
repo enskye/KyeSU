@@ -68,6 +68,12 @@ class SettingsViewModel(
             val isKernelUmountEnabled = repo.isKernelUmountEnabled()
             val selinuxHideStatus = repo.getSelinuxHideStatus()
             val isSelinuxHideEnabled = repo.isSelinuxHideEnabled()
+            val getpriorityHideStatus = repo.getGetpriorityHideStatus()
+            val isGetpriorityHideEnabled = if (getpriorityHideStatus == "forced") {
+                repo.getGetpriorityHideValue() == 1L
+            } else {
+                repo.getGetpriorityHidePersistValue() == 1L
+            }
             val sulogStatus = repo.getSulogStatus()
             val isSulogEnabled = if (sulogStatus == "forced") {
                 repo.getSulogValue() == 1L
@@ -123,6 +129,8 @@ class SettingsViewModel(
                     isKernelUmountEnabled = isKernelUmountEnabled,
                     selinuxHideStatus = selinuxHideStatus,
                     isSelinuxHideEnabled = isSelinuxHideEnabled,
+                    getpriorityHideStatus = getpriorityHideStatus,
+                    isGetpriorityHideEnabled = isGetpriorityHideEnabled,
                     sulogStatus = sulogStatus,
                     isSulogEnabled = isSulogEnabled,
                     isDefaultUmountModules = isDefaultUmountModules,
@@ -325,6 +333,15 @@ class SettingsViewModel(
                             Toast.LENGTH_LONG).show()
                     }
                 }
+            }
+        }
+    }
+
+    fun setGetpriorityHideEnabled(enabled: Boolean) {
+        viewModelScope.launch(Dispatchers.IO) {
+            if (repo.setGetpriorityHideEnabled(enabled)) {
+                repo.execKsudFeatureSave()
+                _uiState.update { it.copy(isGetpriorityHideEnabled = enabled) }
             }
         }
     }

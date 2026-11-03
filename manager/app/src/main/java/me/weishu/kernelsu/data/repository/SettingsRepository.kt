@@ -48,6 +48,11 @@ interface SettingsRepository {
     fun isSelinuxHideEnabled(): Boolean
     fun setSelinuxHideEnabled(enabled: Boolean): Int
 
+    suspend fun getGetpriorityHideStatus(): String
+    suspend fun getGetpriorityHidePersistValue(): Long?
+    suspend fun getGetpriorityHideValue(): Long?
+    fun setGetpriorityHideEnabled(enabled: Boolean): Boolean
+
     suspend fun getSulogStatus(): String
     suspend fun getSulogPersistValue(): Long?
     suspend fun getSulogValue(): Long?

@@ -30,6 +30,7 @@ import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.SystemUpdate
 import androidx.compose.material.icons.filled.SystemUpdateAlt
 import androidx.compose.material.icons.filled.VerifiedUser
+import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LargeFlexibleTopAppBar
 import androidx.compose.material3.SnackbarHostState
@@ -228,6 +229,22 @@ fun SettingPagerMaterial(
                                 enabled = uiState.selinuxHideStatus == "supported",
                                 checked = uiState.isSelinuxHideEnabled,
                                 onCheckedChange = actions.onSetSelinuxHideEnabled
+                            )
+                        },
+                        {
+                            val getpriorityHideSummary = when (uiState.getpriorityHideStatus) {
+                                "unsupported" -> stringResource(id = R.string.feature_status_unsupported_summary)
+                                "managed" -> stringResource(id = R.string.feature_status_managed_summary)
+                                "forced" -> stringResource(id = R.string.feature_status_forced_summary)
+                                else -> stringResource(id = R.string.settings_getpriority_hide_summary)
+                            }
+                            SegmentedSwitchItem(
+                                icon = Icons.Filled.VisibilityOff,
+                                title = stringResource(id = R.string.settings_getpriority_hide),
+                                summary = getpriorityHideSummary,
+                                enabled = uiState.getpriorityHideStatus == "supported",
+                                checked = uiState.isGetpriorityHideEnabled,
+                                onCheckedChange = actions.onSetGetpriorityHideEnabled
                             )
                         },
                         {
