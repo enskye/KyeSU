@@ -105,6 +105,12 @@ bool get_allow_list(struct ksu_new_get_allow_list_cmd *cmd) {
     return ksuctl(KSU_IOCTL_NEW_GET_ALLOW_LIST, cmd) == 0;
 }
 
+int get_pkg_event_fd() {
+    struct ksu_get_pkg_event_fd_cmd cmd = {};
+    int ret = ksuctl(KSU_IOCTL_GET_PKG_EVENT_FD, &cmd);
+    return ret < 0 ? -errno : ret;
+}
+
 bool is_safe_mode() {
     struct ksu_check_safemode_cmd cmd = {};
     ksuctl(KSU_IOCTL_CHECK_SAFEMODE, &cmd);
