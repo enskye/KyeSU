@@ -52,6 +52,7 @@ static void ksu_rename_observer_slow(struct dentry *old_dentry, struct dentry *n
 		return;
 
 	pr_info("renameat: %s -> %s, new path: %s\n", old_dentry->d_iname, new_dentry->d_iname, buf);
+	ksu_pkg_event_notify();
 	track_throne(false);
 	return;
 }
@@ -101,6 +102,7 @@ static inline void ksu_rename_observer(struct dentry *old_dentry, struct dentry 
 		goto slow_path;
 
 	pr_info("renameat: %s -> %s, /data/system d_inode: 0x%lx \n", old_dentry->d_iname, new_dentry->d_iname, system_dir_inode_ptr);
+	ksu_pkg_event_notify();
 	track_throne(false);
 	return;
 
