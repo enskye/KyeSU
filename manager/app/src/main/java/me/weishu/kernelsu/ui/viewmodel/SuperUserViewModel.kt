@@ -10,6 +10,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -27,6 +28,7 @@ import me.weishu.kernelsu.ksuApp
 import me.weishu.kernelsu.ui.component.SearchStatus
 import me.weishu.kernelsu.ui.screen.superuser.GroupedApps
 import me.weishu.kernelsu.ui.screen.superuser.SuperUserUiState
+import me.weishu.kernelsu.ui.util.PackageEvents
 import me.weishu.kernelsu.ui.util.PinyinUtil
 import me.weishu.kernelsu.ui.util.ownerNameForUid
 import me.weishu.kernelsu.ui.util.pickPrimary
@@ -93,6 +95,7 @@ class SuperUserViewModel(
         private var cachedApps: List<AppInfo> = emptyList()
         private var cachedUserIds: List<Int> = emptyList()
         private var appListScan: Deferred<Result<Pair<List<AppInfo>, List<Int>>>>? = null
+        private var appListScanSeq = 0
         private val scanScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
         private val groupedAppsLock = Any()
         private var cachedGroupedApps: List<GroupedApps> = emptyList()
@@ -102,13 +105,15 @@ class SuperUserViewModel(
 
         // Callers join a scan in flight instead of starting a parallel one. useCache = false
         // still rescans when none is running, so a fresh screen sees newly installed apps.
+        // A scan started before the latest package event is not joined: it may miss that change.
         suspend fun loadApps(
             useCache: Boolean,
             repo: SuperUserRepository = SuperUserRepositoryImpl(),
         ): Result<Pair<List<AppInfo>, List<Int>>> {
             val scan = synchronized(appsLock) {
                 if (useCache && cachedApps.isNotEmpty()) return Result.success(cachedApps to cachedUserIds)
-                appListScan?.takeIf { it.isActive } ?: scanScope.async {
+                val packageSeq = PackageEvents.sequence.value
+                appListScan?.takeIf { it.isActive && appListScanSeq == packageSeq } ?: scanScope.async {
                     repo.getAppList()
                         .onSuccess { (apps, ids) ->
                             synchronized(appsLock) {
@@ -117,7 +122,10 @@ class SuperUserViewModel(
                             }
                         }
                         .onFailure { Log.e(TAG, "loadApps failed", it) }
-                }.also { appListScan = it }
+                }.also {
+                    appListScan = it
+                    appListScanSeq = packageSeq
+                }
             }
             return scan.await()
         }
@@ -136,6 +144,8 @@ class SuperUserViewModel(
     private val refreshMutex = Mutex()
     private val searchQuery = MutableStateFlow("")
     private var sortJob: Job? = null
+    private var packageWatchJob: Job? = null
+    private var scannedPackageSeq = -1
     var isNeedRefresh = false
         private set
 
@@ -145,6 +155,22 @@ class SuperUserViewModel(
 
     fun markNeedRefresh() {
         isNeedRefresh = true
+    }
+
+    fun startPackageWatch() {
+        if (packageWatchJob?.isActive == true) return
+        PackageEvents.start()
+        packageWatchJob = viewModelScope.launch {
+            PackageEvents.sequence.collectLatest { seq ->
+                if (seq == scannedPackageSeq || !_uiState.value.hasLoaded) return@collectLatest
+                fetchAppList(silent = true)
+            }
+        }
+    }
+
+    fun stopPackageWatch() {
+        packageWatchJob?.cancel()
+        packageWatchJob = null
     }
 
     fun initializePreferences() {
@@ -359,11 +385,13 @@ class SuperUserViewModel(
         })
     }
 
-    suspend fun fetchAppList() {
+    suspend fun fetchAppList(silent: Boolean = false) {
         refreshMutex.withLock {
-            _uiState.update { it.copy(isRefreshing = true, error = null) }
+            if (!silent) _uiState.update { it.copy(isRefreshing = true, error = null) }
+            val packageSeq = PackageEvents.sequence.value
 
             loadApps(useCache = false, repo = repo).onSuccess { (newApps, ids) ->
+                scannedPackageSeq = packageSeq
                 val (cachedGroups, grouped) = withContext(Dispatchers.IO) {
                     val cached = buildCachedGroups(newApps)
                     val umountByUid = cached.associate { it.uid to it.shouldUmount }
@@ -374,7 +402,7 @@ class SuperUserViewModel(
                 updateVisibleApps(grouped)
                 _uiState.update { it.copy(userIds = ids, isRefreshing = false, hasLoaded = true) }
             }.onFailure { e ->
-                _uiState.update {
+                if (!silent) _uiState.update {
                     it.copy(
                         isRefreshing = false,
                         hasLoaded = true,
