@@ -55,6 +55,8 @@ bool is_selinux_hide_enabled();
 
 bool get_allow_list(struct ksu_new_get_allow_list_cmd *);
 
+int get_pkg_event_fd();
+
 inline std::pair<int, int> legacy_get_info() {
     int32_t version = -1;
     int32_t flags = 0;
