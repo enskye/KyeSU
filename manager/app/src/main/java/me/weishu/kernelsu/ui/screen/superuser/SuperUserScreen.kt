@@ -8,6 +8,7 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.compose.LifecycleResumeEffect
+import androidx.lifecycle.compose.LifecycleStartEffect
 import androidx.compose.ui.unit.Dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -39,6 +40,11 @@ fun SuperUserPager(
         } else if (!uiState.searchStatus.isCollapsed()) {
             viewModel.updateSearchStatus(uiState.searchStatus.copy(searchText = "", current = SearchStatus.Status.COLLAPSED))
         }
+    }
+
+    LifecycleStartEffect(isCurrentPage) {
+        if (isCurrentPage) viewModel.startPackageWatch()
+        onStopOrDispose { viewModel.stopPackageWatch() }
     }
 
     LifecycleResumeEffect(Unit) {
