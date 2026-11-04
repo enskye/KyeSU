@@ -111,6 +111,7 @@
 #include "policy/app_profile.c"
 #include "policy/feature.c"
 #include "manager/apk_sign.c"
+#include "manager/pkg_event.c"
 #include "manager/pkg_observer.c"
 #include "manager/throne_tracker.c"
 
