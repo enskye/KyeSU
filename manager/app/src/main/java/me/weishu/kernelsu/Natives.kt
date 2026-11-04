@@ -100,6 +100,11 @@ object Natives {
 
     external fun getSuperuserCount(): Int
 
+    /**
+     * A pollable fd that turns readable on package changes, or -errno.
+     */
+    external fun getPackageEventFd(): Int
+
     private const val NON_ROOT_DEFAULT_PROFILE_KEY = "$"
     private const val NOBODY_UID = 9999
 
