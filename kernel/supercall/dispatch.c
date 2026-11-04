@@ -709,6 +709,19 @@ static int do_get_sulog_fd(void __user *arg)
 	return ksu_install_sulog_fd();
 }
 
+static int do_get_pkg_event_fd(void __user *arg)
+{
+	struct ksu_get_pkg_event_fd_cmd cmd;
+
+	if (copy_from_user(&cmd, arg, sizeof(cmd)))
+		return -EFAULT;
+
+	if (cmd.flags)
+		return -EINVAL;
+
+	return ksu_install_pkg_event_fd();
+}
+
 static int do_disable_escape_to_root(void __user *arg)
 {
 	set_thread_flag(TIF_KSU_DISABLE_ESCAPE_WITH_ROOT);
@@ -821,6 +834,7 @@ static const struct ksu_ioctl_cmd_map ksu_ioctl_handlers[] = {
 	{ .cmd = KSU_IOCTL_GET_SULOG_FD, .name = "GET_SULOG_FD", .handler = do_get_sulog_fd, .perm_check = only_root },
 	{ .cmd = KSU_IOCTL_DISABLE_ESCAPE_TO_ROOT, .name = "DISABLE_ESCAPE_TO_ROOT", .handler = do_disable_escape_to_root, .perm_check = only_root, .allow_su_session = true },
 	{ .cmd = KSU_IOCTL_LOOKUP_SYMBOLS, .name = "LOOKUP_SYMBOLS", .handler = do_lookup_symbols, .perm_check = only_root },
+	{ .cmd = KSU_IOCTL_GET_PKG_EVENT_FD, .name = "GET_PKG_EVENT_FD", .handler = do_get_pkg_event_fd, .perm_check = manager_or_root },
 	{ .cmd = 0, .name = NULL, .handler = NULL, .perm_check = NULL } // Sentinel
 };
 
