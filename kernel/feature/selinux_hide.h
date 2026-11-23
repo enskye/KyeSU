@@ -36,6 +36,7 @@ static struct ksu_hide_buf *ksu_hide_type_list __read_mostly = nullptr;
 static struct ksu_hide_buf *ksu_hide_rule_list __read_mostly = nullptr;
 
 static DEFINE_MUTEX(selinux_hide_list_mutex);
+static atomic64_t ksu_hide_list_generation = ATOMIC64_INIT(0);
 
 static struct ksu_hide_buf *__percpu *ksu_selinux_hide_hazptr_slot __read_mostly = nullptr;
 
@@ -143,7 +144,9 @@ static noinline void ksu_add_shit_to_list(u32 cmd, const char *args[])
 		char *w_ptr = new_ptr->data + old_len;
 		sprintf(w_ptr, ":%s:", name);
 
+		atomic64_inc_return(&ksu_hide_list_generation);
 		struct ksu_hide_buf *old_ptr = __atomic_exchange_n(&ksu_hide_type_list, new_ptr, __ATOMIC_ACQ_REL);
+		atomic64_inc_return(&ksu_hide_list_generation);
 		ksu_selinux_hide_hazptr_free(old_ptr);
 
 		pr_info("selinux_hide: tracking type: %s\n", w_ptr);
@@ -199,7 +202,9 @@ static noinline void ksu_add_shit_to_list(u32 cmd, const char *args[])
 		char *w_ptr_tgt = w_ptr_src + strlen(w_ptr_src) + 1;
 		sprintf(w_ptr_tgt, ":%s:", tgt);
 
+		atomic64_inc_return(&ksu_hide_list_generation);
 		struct ksu_hide_buf *old_ptr = __atomic_exchange_n(&ksu_hide_rule_list, new_ptr, __ATOMIC_ACQ_REL);
+		atomic64_inc_return(&ksu_hide_list_generation);
 		ksu_selinux_hide_hazptr_free(old_ptr);
 
 		pr_info("selinux_hide: tracking rule: %s %s\n", w_ptr_src, w_ptr_tgt);
@@ -214,6 +219,8 @@ static bool ksu_should_destroy_context(char *str, size_t limit)
 	if (!str)
 		return false;
 
+	bool hidden = false;
+
 { // scope++
 	struct ksu_hide_buf *type_buf __cleanup(ksu_selinux_hide_put_buf) = ksu_selinux_hide_get_buf(&ksu_hide_type_list);
 	if (unlikely(!type_buf))
@@ -223,8 +230,8 @@ static bool ksu_should_destroy_context(char *str, size_t limit)
 	while (type_buf->len > offset) {
 		const char *current_entry = type_buf->data + offset;
 
-		if (strnstr(str, current_entry, limit))
-			return true;
+		// Walk the entire snapshot for both matching and nonmatching types.
+		hidden |= strnstr(str, current_entry, limit) != NULL;
 
 		offset = offset + strlen(current_entry) + 1;
 	}
@@ -233,12 +240,12 @@ static bool ksu_should_destroy_context(char *str, size_t limit)
 check_rule:; // double strstr
 	const char *str2 = strnchr(str, limit, ' ');
 	if (!str2)
-		return false;
+		return hidden;
 
 { // scope++
 	struct ksu_hide_buf *rule_buf __cleanup(ksu_selinux_hide_put_buf) = ksu_selinux_hide_get_buf(&ksu_hide_rule_list);
 	if (unlikely(!rule_buf))
-		return false;
+		return hidden;
 	
 	size_t offset = 0;
 	while (rule_buf->len > offset) {
@@ -254,7 +261,7 @@ check_rule:; // double strstr
 		offset = offset + src_sz + tgt_sz;
 	}
 } // scope--
-	return false;
+	return hidden;
 }
 
 // 255 * 4 + 2 * uintptr + 4 + 4, nbd.

@@ -61,10 +61,21 @@ static __always_inline int ksu_hide_setprocattr_inline(const char *name, void *v
 	if (!str || !str[0])
 		return 0;
 
+#if defined(KSU_HAS_ARM64_SELINUX_HIDE) && LINUX_VERSION_CODE >= KERNEL_VERSION(5, 10, 0)
+	// current cannot be cleared with a newline: both unknown-type payloads
+	// are invalid. Normalize before SELinux chooses its newline bypass.
+	if (size >= sizeof(SH_INVALID_CONTEXT) && sh_reject_context(str, size, true)) {
+		memset(str, 0, size);
+		memcpy(str, SH_INVALID_CONTEXT, sizeof(SH_INVALID_CONTEXT));
+		return 0;
+	}
+#endif
+
 	if (!ksu_should_destroy_context(str, size))
 		return 0;
 	
-	pr_info("selinux_hide: setprocattr: destroy: %.*s\n", size, str);
+	if (IS_ENABLED(CONFIG_KSU_DEBUG))
+		pr_info("selinux_hide: setprocattr: destroy: %.*s\n", size, str);
 	str[1] = ';';
 
 	return 0;
@@ -114,7 +125,8 @@ static __always_inline int ksu_hide_setxattr_inline(const char *name, void *valu
 	}
 #endif
 	// destroy
-	pr_info("selinux_hide: inode_setxattr: destroy: %.*s\n", size, str);
+	if (IS_ENABLED(CONFIG_KSU_DEBUG))
+		pr_info("selinux_hide: inode_setxattr: destroy: %.*s\n", size, str);
 	str[1] = ';';
 
 	return 0;
@@ -148,7 +160,8 @@ static __nocfi ssize_t ksu_selinux_transaction_write(struct file *file, const ch
 
 	kbuf[len] = '\0';
 	if (ksu_should_destroy_context(kbuf, len)) {
-		pr_info("selinux_hide: selinux_transaction_write: destroy: %s \n", kbuf);
+		if (IS_ENABLED(CONFIG_KSU_DEBUG))
+			pr_info("selinux_hide: selinux_transaction_write: destroy: %s \n", kbuf);
 		// buf = (const char __user *)current->mm->start_stack;
 		// context: https://github.com/eltavine/Duck-Detector-Refactoring/pull/451
 		do_useless_alloc();
