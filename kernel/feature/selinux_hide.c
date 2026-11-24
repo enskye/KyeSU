@@ -162,6 +162,8 @@ static __nocfi ssize_t ksu_selinux_transaction_write(struct file *file, const ch
 	char *context = kbuf;
 	if (ino == SEL_ACCESS)
 		context = ksu_selinux_access_contexts(kbuf, &len);
+	else
+		len = strnlen(kbuf, len);
 
 	if (ksu_should_destroy_context(context, len)) {
 		if (IS_ENABLED(CONFIG_KSU_DEBUG))

@@ -286,13 +286,14 @@ static char *sh_simple_transaction_get(struct file *file, const char __user *buf
 #define SEL_CONTEXT 5
 #define SEL_ACCESS 6
 	ino_t ino = file_inode(file)->i_ino;
-	if (ino == SEL_CONTEXT && size >= sizeof(SH_INVALID_CONTEXT) &&
-	    sh_reject_context(data, size, true)) {
+	size_t context_len = ino == SEL_CONTEXT ? strnlen(data, size) : size;
+	if (ino == SEL_CONTEXT && context_len >= sizeof(SH_INVALID_CONTEXT) &&
+	    sh_reject_context(data, context_len, true)) {
 		// simple_transaction_get owns a zero-terminated kernel buffer.
 		memset(data, 0, size);
 		memcpy(data, SH_INVALID_CONTEXT, sizeof(SH_INVALID_CONTEXT));
 	} else if (ino == SEL_CONTEXT) {
-		sh_mask_context_types(data, size);
+		sh_mask_context_types(data, context_len);
 	} else if (ino == SEL_ACCESS) {
 		size_t len = size;
 		char *contexts = ksu_selinux_access_contexts(data, &len);
