@@ -240,6 +240,87 @@ static bool is_uid_exist(uid_t uid, char *package, void *data)
 	return exist;
 }
 
+#define KSU_PACKAGES_READ_SIZE 4096
+
+/* Only the first two fields are needed; the remaining fields may be long. */
+static int ksu_parse_package_prefix(char *prefix, size_t len, bool truncated,
+				    struct list_head *uid_list)
+{
+	if (memchr(prefix, '\0', len))
+		return -EINVAL;
+	prefix[len] = '\0';
+	char *rest = prefix;
+	char *package = strsep(&rest, " ");
+	char *uid = strsep(&rest, " ");
+	if (!package || !*package || strlen(package) >= KSU_MAX_PACKAGE_NAME ||
+	    !uid || !*uid || (truncated && !rest))
+		return -EINVAL;
+
+	u32 value;
+	if (kstrtou32(uid, 10, &value))
+		return -EINVAL;
+
+	struct uid_data *data = kzalloc(sizeof(*data), GFP_KERNEL);
+	if (!data)
+		return -ENOMEM;
+	data->uid = value;
+	strscpy(data->package, package, sizeof(data->package));
+	list_add_tail(&data->list, uid_list);
+	return 0;
+}
+
+/* Consume each byte once, carrying just the bounded prefix across reads. */
+static int ksu_read_package_list(struct file *fp, struct list_head *uid_list)
+{
+	char *buf = kmalloc(KSU_PACKAGES_READ_SIZE, GFP_KERNEL);
+	if (!buf)
+		return -ENOMEM;
+
+	/* package name, space, u32 decimal UID, space, terminator */
+	char prefix[KSU_MAX_PACKAGE_NAME + 12];
+	size_t used = 0;
+	bool truncated = false;
+	loff_t pos = 0;
+	int ret = 0;
+
+	for (;;) {
+		ssize_t count = kernel_read(fp, buf, KSU_PACKAGES_READ_SIZE, &pos);
+		if (count < 0) {
+			ret = count;
+			break;
+		}
+		if (!count) {
+			/* Do not prune from an empty or incomplete snapshot. */
+			if (used || truncated || list_empty(uid_list))
+				ret = -EINVAL;
+			break;
+		}
+
+		const char *p = buf;
+		const char *end = buf + count;
+		while (p < end) {
+			const char *newline = memchr(p, '\n', end - p);
+			size_t len = (newline ? newline : end) - p;
+			size_t take = min_t(size_t, len, sizeof(prefix) - 1 - used);
+			memcpy(prefix + used, p, take);
+			used += take;
+			truncated |= take != len;
+			if (!newline)
+				break;
+			ret = ksu_parse_package_prefix(prefix, used, truncated, uid_list);
+			if (ret)
+				goto out_read;
+			used = 0;
+			truncated = false;
+			p = newline + 1;
+		}
+	}
+
+out_read:
+	kfree(buf);
+	return ret;
+}
+
 static void throne_tracker_fn(bool prune_only)
 {
 	struct file *fp = filp_open(SYSTEM_PACKAGES_LIST_PATH, O_RDONLY, 0);
@@ -250,57 +331,15 @@ static void throne_tracker_fn(bool prune_only)
 
 	struct list_head uid_list;
 	INIT_LIST_HEAD(&uid_list);
-
-	char chr = 0;
-	loff_t pos = 0;
-	loff_t line_start = 0;
-	char buf[KSU_MAX_PACKAGE_NAME];
-	for (;;) {
-		ssize_t count = kernel_read(fp, &chr, sizeof(chr), &pos);
-		if (count != sizeof(chr))
-			break;
-		if (chr != '\n')
-			continue;
-
-		count = kernel_read(fp, buf, sizeof(buf) - 1, &line_start);
-		if (count <= 0) {
-			break;
-		}
-		buf[count] = '\0';
-
-		struct uid_data *data = kzalloc(sizeof(struct uid_data), GFP_KERNEL);
-		if (!data) {
-			filp_close(fp, 0);
-			goto out;
-		}
-
-		char *tmp = buf;
-		const char *delim = " ";
-		char *package = strsep(&tmp, delim);
-		char *uid = strsep(&tmp, delim);
-		if (!uid || !package) {
-			kfree(data);
-			pr_err("update_uid: package or uid is NULL!\n");
-			break;
-		}
-
-		u32 res;
-		if (kstrtou32(uid, 10, &res)) {
-			kfree(data);
-			pr_err("update_uid: uid parse err\n");
-			break;
-		}
-		data->uid = res;
-		strscpy(data->package, package, sizeof(data->package));
-		list_add_tail(&data->list, &uid_list);
-		// reset line start
-		line_start = pos;
-	}
-	filp_close(fp, 0);
-
-	// now update uid list
 	struct uid_data *np;
 	struct uid_data *n;
+
+	int ret = ksu_read_package_list(fp, &uid_list);
+	filp_close(fp, 0);
+	if (ret) {
+		pr_err("%s: incomplete packages.list: %d\n", __func__, ret);
+		goto out;
+	}
 
 	if (prune_only)
 		goto prune;
@@ -367,64 +406,108 @@ out:
 	}	
 }
 
+/* One active scan; preserve a full request when merging with prune-only. */
+static DEFINE_SPINLOCK(throne_tracker_state_lock);
+static bool throne_tracker_running;
+static bool throne_tracker_pending;
+static bool throne_tracker_pending_full;
+#ifndef CONFIG_KSU_THRONE_TRACKER_ALWAYS_THREADED
+static bool throne_tracker_first = true;
+#endif
+
 static int throne_tracker_thread(void *data)
 {
-	// now de-void it here
-	bool prune_only = (bool)data;
+	unsigned long flags;
+	bool prepared = false;
 
 	pr_info("throne_tracker: pid: %d started\n", current->pid);
-
 	guarded_mutex_lock(&throne_tracker_mutex);
 
-test_tmp:
-	if (!is_file_existing("/data/system/packages.list.tmp"))
-		goto test_list;
+	for (;;) {
+		while (is_file_existing("/data/system/packages.list.tmp") ||
+		       !is_file_stable(SYSTEM_PACKAGES_LIST_PATH)) {
+			if (IS_ENABLED(CONFIG_KSU_DEBUG))
+				pr_info("throne_tracker: rename not finished! retry!\n");
+			msleep(20);
+		}
 
-	if (IS_ENABLED(CONFIG_KSU_DEBUG))
-		pr_info("throne_tracker: rename not finished! retry!\n");
+		if (!prepared) {
+			set_user_nice(current, -10);
+			// Dedicated kthread, as before; never elevate a shared worker.
+			escape_to_root_forced();
+			prepared = true;
+		}
 
-	msleep(20); // yield
-	goto test_tmp;
+		spin_lock_irqsave(&throne_tracker_state_lock, flags);
+		bool prune_only = !throne_tracker_pending_full;
+		throne_tracker_pending = false;
+		throne_tracker_pending_full = false;
+		spin_unlock_irqrestore(&throne_tracker_state_lock, flags);
 
-test_list:
-	if (is_file_stable(SYSTEM_PACKAGES_LIST_PATH))
-		goto start_tt;
+		throne_tracker_fn(prune_only);
 
-	if (IS_ENABLED(CONFIG_KSU_DEBUG))
-		pr_info("throne_tracker: rename not finished! retry!\n");
-
-	msleep(20); // yield
-	goto test_list;	
-
-start_tt:
-	// lessen that window where user opens manager right away, yet its not crowned
-	set_user_nice(current, -10);
-
-	// this in exchange of override creds, we escape this whole thread.
-	escape_to_root_forced();
-	throne_tracker_fn(prune_only);
+		spin_lock_irqsave(&throne_tracker_state_lock, flags);
+		if (!throne_tracker_pending) {
+			throne_tracker_running = false;
+			spin_unlock_irqrestore(&throne_tracker_state_lock, flags);
+			break;
+		}
+		spin_unlock_irqrestore(&throne_tracker_state_lock, flags);
+	}
 
 	pr_info("throne_tracker: pid: %d exit!\n", current->pid);
 	return 0;
 }
 
+static void throne_tracker_start_worker(void)
+{
+	struct task_struct *task = kthread_run(throne_tracker_thread, NULL, "kthread");
+	if (!IS_ERR(task))
+		return;
+
+	unsigned long flags;
+	spin_lock_irqsave(&throne_tracker_state_lock, flags);
+	/* Retain the request for retry on the next notification. */
+	throne_tracker_running = false;
+	spin_unlock_irqrestore(&throne_tracker_state_lock, flags);
+	pr_err("throne_tracker: worker creation failed: %ld\n", PTR_ERR(task));
+}
+
 void track_throne(bool prune_only)
 {
+	unsigned long flags;
+	spin_lock_irqsave(&throne_tracker_state_lock, flags);
 #ifndef CONFIG_KSU_THRONE_TRACKER_ALWAYS_THREADED
-	static void *label = &&first_run;
-	goto *label;
+	if (throne_tracker_first) {
+		/* Preserve the synchronous first scan during late LKM init. */
+		throne_tracker_first = false;
+		throne_tracker_running = true;
+		spin_unlock_irqrestore(&throne_tracker_state_lock, flags);
 
-first_run:
-	mutex_lock(&throne_tracker_mutex);
-	throne_tracker_fn(prune_only);
-	mutex_unlock(&throne_tracker_mutex);
+		mutex_lock(&throne_tracker_mutex);
+		throne_tracker_fn(prune_only);
+		mutex_unlock(&throne_tracker_mutex);
 
-	label = &&threaded;
-	return;
-threaded:
+		spin_lock_irqsave(&throne_tracker_state_lock, flags);
+		if (!throne_tracker_pending) {
+			throne_tracker_running = false;
+			spin_unlock_irqrestore(&throne_tracker_state_lock, flags);
+			return;
+		}
+		spin_unlock_irqrestore(&throne_tracker_state_lock, flags);
+		throne_tracker_start_worker();
+		return;
+	}
 #endif
-	// HACK: force cast prune_only to be a void *
-	kthread_run(throne_tracker_thread, (void *)prune_only, "kthread");
+	throne_tracker_pending = true;
+	throne_tracker_pending_full |= !prune_only;
+	if (throne_tracker_running) {
+		spin_unlock_irqrestore(&throne_tracker_state_lock, flags);
+		return;
+	}
+	throne_tracker_running = true;
+	spin_unlock_irqrestore(&throne_tracker_state_lock, flags);
+	throne_tracker_start_worker();
 }
 
 void __init ksu_throne_tracker_init()
