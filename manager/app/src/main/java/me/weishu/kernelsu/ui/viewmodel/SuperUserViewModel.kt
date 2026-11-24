@@ -10,7 +10,10 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
-import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -33,6 +36,8 @@ import me.weishu.kernelsu.ui.util.PinyinUtil
 import me.weishu.kernelsu.ui.util.ownerNameForUid
 import me.weishu.kernelsu.ui.util.pickPrimary
 import java.text.Collator
+import java.util.Collections
+import java.util.IdentityHashMap
 import java.util.Locale
 
 internal const val RECENTLY_INSTALLED_WINDOW_MILLIS = 60 * 60 * 1000L
@@ -94,8 +99,14 @@ class SuperUserViewModel(
         private val appsLock = Any()
         private var cachedApps: List<AppInfo> = emptyList()
         private var cachedUserIds: List<Int> = emptyList()
-        private var appListScan: Deferred<Result<Pair<List<AppInfo>, List<Int>>>>? = null
-        private var appListScanSeq = 0
+        private data class AppListSnapshot(
+            val apps: List<AppInfo>,
+            val userIds: List<Int>,
+            val packageSeq: Int,
+        )
+
+        private var cachedPackageSeq: Int? = null
+        private var appListScan: Deferred<Result<AppListSnapshot>>? = null
         private val scanScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
         private val groupedAppsLock = Any()
         private var cachedGroupedApps: List<GroupedApps> = emptyList()
@@ -103,32 +114,51 @@ class SuperUserViewModel(
         val apps: List<AppInfo>
             get() = synchronized(appsLock) { cachedApps }
 
-        // Callers join a scan in flight instead of starting a parallel one. useCache = false
-        // still rescans when none is running, so a fresh screen sees newly installed apps.
-        // A scan started before the latest package event is not joined: it may miss that change.
-        suspend fun loadApps(
-            useCache: Boolean,
-            repo: SuperUserRepository = SuperUserRepositoryImpl(),
-        ): Result<Pair<List<AppInfo>, List<Int>>> {
-            val scan = synchronized(appsLock) {
-                if (useCache && cachedApps.isNotEmpty()) return Result.success(cachedApps to cachedUserIds)
+        // One shared scan owns the cache. Events during a scan are coalesced
+        // into a follow-up pass; no second repository scan can overlap it.
+        private suspend fun scanApps(repo: SuperUserRepository): Result<AppListSnapshot> {
+            while (true) {
                 val packageSeq = PackageEvents.sequence.value
-                appListScan?.takeIf { it.isActive && appListScanSeq == packageSeq } ?: scanScope.async {
-                    repo.getAppList()
-                        .onSuccess { (apps, ids) ->
-                            synchronized(appsLock) {
-                                cachedApps = apps
-                                cachedUserIds = ids
-                            }
-                        }
-                        .onFailure { Log.e(TAG, "loadApps failed", it) }
-                }.also {
-                    appListScan = it
-                    appListScanSeq = packageSeq
+                val (apps, ids) = repo.getAppList().getOrElse {
+                    Log.e(TAG, "loadApps failed", it)
+                    return Result.failure(it)
                 }
+                val snapshot = AppListSnapshot(apps, ids, packageSeq)
+                val published = synchronized(appsLock) {
+                    if (PackageEvents.sequence.value != packageSeq) {
+                        false
+                    } else {
+                        cachedApps = apps
+                        cachedUserIds = ids
+                        cachedPackageSeq = packageSeq
+                        true
+                    }
+                }
+                if (published) return Result.success(snapshot)
+            }
+        }
+
+        private suspend fun loadAppSnapshot(
+            useCache: Boolean,
+            repo: SuperUserRepository,
+        ): Result<AppListSnapshot> {
+            val scan = synchronized(appsLock) {
+                val packageSeq = PackageEvents.sequence.value
+                if (useCache && cachedPackageSeq == packageSeq) {
+                    return Result.success(AppListSnapshot(cachedApps, cachedUserIds, packageSeq))
+                }
+                appListScan?.takeUnless { it.isCompleted } ?: scanScope.async {
+                    scanApps(repo)
+                }.also { appListScan = it }
             }
             return scan.await()
         }
+
+        suspend fun loadApps(
+            useCache: Boolean,
+            repo: SuperUserRepository = SuperUserRepositoryImpl(),
+        ): Result<Pair<List<AppInfo>, List<Int>>> =
+            loadAppSnapshot(useCache, repo).map { it.apps to it.userIds }
 
         @JvmStatic
         fun getGroupedApp(uid: Int): GroupedApps? {
@@ -145,7 +175,7 @@ class SuperUserViewModel(
     private val searchQuery = MutableStateFlow("")
     private var sortJob: Job? = null
     private var packageWatchJob: Job? = null
-    private var scannedPackageSeq = -1
+    private var scannedPackageSeq: Int? = null
     var isNeedRefresh = false
         private set
 
@@ -161,9 +191,13 @@ class SuperUserViewModel(
         if (packageWatchJob?.isActive == true) return
         PackageEvents.start()
         packageWatchJob = viewModelScope.launch {
-            PackageEvents.sequence.collectLatest { seq ->
-                if (seq == scannedPackageSeq || !_uiState.value.hasLoaded) return@collectLatest
-                fetchAppList(silent = true)
+            // StateFlow conflates bursts while the current refresh finishes.
+            // Observe initial load completion too, so events during it are not lost.
+            combine(
+                PackageEvents.sequence,
+                uiState.map { it.hasLoaded }.distinctUntilChanged(),
+            ) { seq, loaded -> seq to loaded }.collect { (seq, loaded) ->
+                if (loaded && seq != scannedPackageSeq) fetchAppList(silent = true)
             }
         }
     }
@@ -331,10 +365,7 @@ class SuperUserViewModel(
         return buildGroups(apps.filter { it.packageName != ksuApp.packageName })
     }
 
-    private fun buildGroups(
-        apps: List<AppInfo>,
-        umount: (Int) -> Boolean = { Natives.uidShouldUmount(it) },
-    ): List<GroupedApps> {
+    private fun buildGroups(apps: List<AppInfo>): List<GroupedApps> {
         val collator = Collator.getInstance(Locale.getDefault())
         val comparator = compareBy<AppInfo> {
             when {
@@ -346,7 +377,7 @@ class SuperUserViewModel(
         return apps.groupBy { it.uid }.map { (uid, list) ->
             val sorted = list.sortedWith(comparator)
             val primary = pickPrimary(sorted)
-            val shouldUmount = umount(uid)
+            val shouldUmount = Natives.uidShouldUmount(uid)
             val ownerName = if (sorted.size > 1) ownerNameForUid(uid, sorted) else null
 
             GroupedApps(
@@ -359,6 +390,31 @@ class SuperUserViewModel(
                 ownerName = ownerName
             )
         }
+    }
+
+    // Derive visible groups from the already sorted, complete UID groups.
+    // Identity membership avoids hashing AppInfo's potentially large profile.
+    // Iterate UIDs in the original filtered order to preserve stable sort ties.
+    private fun buildVisibleGroups(cached: List<GroupedApps>, apps: List<AppInfo>): List<GroupedApps> {
+        val visible = filterApps(apps)
+        val visibleSet = Collections.newSetFromMap(IdentityHashMap<AppInfo, Boolean>())
+        visibleSet.addAll(visible)
+        val byUid = cached.associateBy { it.uid }
+        return visible.asSequence().map { it.uid }.distinct().map { uid ->
+            val group = byUid.getValue(uid)
+            if (group.apps.size == 1) {
+                group
+            } else {
+                val subset = group.apps.filter { it in visibleSet }
+                if (subset.size == group.apps.size) group else group.copy(
+                    apps = subset,
+                    primary = pickPrimary(subset),
+                    anyAllowSu = subset.any { it.allowSu },
+                    anyCustom = subset.any { it.hasCustomProfile },
+                    ownerName = if (subset.size > 1) ownerNameForUid(uid, subset) else null,
+                )
+            }
+        }.toList()
     }
 
     private fun groupRank(group: GroupedApps): Int = when {
@@ -387,20 +443,19 @@ class SuperUserViewModel(
 
     suspend fun fetchAppList(silent: Boolean = false) {
         refreshMutex.withLock {
+            if (silent && _uiState.value.hasLoaded && scannedPackageSeq == PackageEvents.sequence.value) return
             if (!silent) _uiState.update { it.copy(isRefreshing = true, error = null) }
-            val packageSeq = PackageEvents.sequence.value
 
-            loadApps(useCache = false, repo = repo).onSuccess { (newApps, ids) ->
-                scannedPackageSeq = packageSeq
+            loadAppSnapshot(useCache = silent, repo = repo).onSuccess { snapshot ->
                 val (cachedGroups, grouped) = withContext(Dispatchers.IO) {
-                    val cached = buildCachedGroups(newApps)
-                    val umountByUid = cached.associate { it.uid to it.shouldUmount }
-                    cached to buildGroups(filterApps(newApps)) { umountByUid[it] ?: Natives.uidShouldUmount(it) }
+                    val cached = buildCachedGroups(snapshot.apps)
+                    cached to buildVisibleGroups(cached, snapshot.apps)
                 }
 
                 updateCachedGroupedApps(cachedGroups)
                 updateVisibleApps(grouped)
-                _uiState.update { it.copy(userIds = ids, isRefreshing = false, hasLoaded = true) }
+                scannedPackageSeq = snapshot.packageSeq
+                _uiState.update { it.copy(userIds = snapshot.userIds, isRefreshing = false, hasLoaded = true) }
             }.onFailure { e ->
                 if (!silent) _uiState.update {
                     it.copy(
@@ -416,20 +471,34 @@ class SuperUserViewModel(
     }
 
     private suspend fun refreshAppList(resort: Boolean = true) {
+        var needsScan = false
         refreshMutex.withLock {
-            val currentApps = synchronized(appsLock) { cachedApps }
+            val (currentApps, packageSeq) = synchronized(appsLock) { cachedApps to cachedPackageSeq }
+            if (packageSeq != PackageEvents.sequence.value) {
+                needsScan = true
+                return@withLock
+            }
             if (currentApps.isEmpty()) return
 
             repo.refreshProfiles(currentApps).onSuccess { updatedApps ->
-                // Update cache for static method
-                synchronized(appsLock) { cachedApps = updatedApps }
+                // A profile refresh based on an older inventory must not replace it.
+                val published = synchronized(appsLock) {
+                    if (cachedApps !== currentApps || cachedPackageSeq != packageSeq ||
+                        PackageEvents.sequence.value != packageSeq) {
+                        false
+                    } else {
+                        cachedApps = updatedApps
+                        true
+                    }
+                }
+                if (!published) {
+                    needsScan = true
+                    return@onSuccess
+                }
 
                 val (cachedGroups, grouped) = withContext(Dispatchers.IO) {
                     val cached = buildCachedGroups(updatedApps)
-                    val umountByUid = cached.associate { it.uid to it.shouldUmount }
-                    val visible = buildGroups(filterApps(updatedApps)) {
-                        umountByUid[it] ?: Natives.uidShouldUmount(it)
-                    }
+                    val visible = buildVisibleGroups(cached, updatedApps)
                     val result = if (resort) {
                         visible
                     } else {
@@ -447,6 +516,8 @@ class SuperUserViewModel(
                 isNeedRefresh = false
             }
         }
+        // Release refreshMutex before requesting a full inventory refresh.
+        if (needsScan) fetchAppList()
     }
 
     fun loadAppList(force: Boolean = false, resort: Boolean = true): Job {
