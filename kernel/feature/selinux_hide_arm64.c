@@ -259,7 +259,7 @@ static void sh_mask_context_type(char *context, size_t len)
 }
 
 // A hidden type or a hidden source/target pair invalidates the whole query.
-// Check the complete payload before altering the first context in place.
+// Check the context fields before altering the first context in place.
 static void sh_mask_context_types(char *buf, size_t len)
 {
 	if (!ksu_should_destroy_context(buf, len))
@@ -291,8 +291,13 @@ static char *sh_simple_transaction_get(struct file *file, const char __user *buf
 		// simple_transaction_get owns a zero-terminated kernel buffer.
 		memset(data, 0, size);
 		memcpy(data, SH_INVALID_CONTEXT, sizeof(SH_INVALID_CONTEXT));
-	} else if (ino == SEL_CONTEXT || ino == SEL_ACCESS) {
+	} else if (ino == SEL_CONTEXT) {
 		sh_mask_context_types(data, size);
+	} else if (ino == SEL_ACCESS) {
+		size_t len = size;
+		char *contexts = ksu_selinux_access_contexts(data, &len);
+		if (contexts)
+			sh_mask_context_types(contexts, len);
 	}
 	return data;
 }

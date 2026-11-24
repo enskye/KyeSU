@@ -159,7 +159,11 @@ static __nocfi ssize_t ksu_selinux_transaction_write(struct file *file, const ch
 		goto skip_destroy;
 
 	kbuf[len] = '\0';
-	if (ksu_should_destroy_context(kbuf, len)) {
+	char *context = kbuf;
+	if (ino == SEL_ACCESS)
+		context = ksu_selinux_access_contexts(kbuf, &len);
+
+	if (ksu_should_destroy_context(context, len)) {
 		if (IS_ENABLED(CONFIG_KSU_DEBUG))
 			pr_info("selinux_hide: selinux_transaction_write: destroy: %s \n", kbuf);
 		// buf = (const char __user *)current->mm->start_stack;

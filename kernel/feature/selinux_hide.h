@@ -16,6 +16,8 @@
 #ifndef __KSU_H_SELINUX_HIDE
 #define __KSU_H_SELINUX_HIDE
 
+#include <linux/ctype.h>
+
 void ksu_selinux_hide_init();
 void ksu_selinux_hide_exit();
 
@@ -212,6 +214,34 @@ static noinline void ksu_add_shit_to_list(u32 cmd, const char *args[])
 	}
 
 	return;
+}
+
+/* Limit access requests to the two context fields consumed by SELinux. */
+static char *ksu_selinux_access_contexts(char *buf, size_t *len)
+{
+	char *end = buf + *len;
+	char *p = buf;
+
+	while (p < end && isspace(*p))
+		p++;
+	char *start = p;
+
+	while (p < end && *p && !isspace(*p))
+		p++;
+	if (p == start || p == end || !*p)
+		return NULL;
+
+	while (p < end && isspace(*p))
+		p++;
+	char *target = p;
+
+	while (p < end && *p && !isspace(*p))
+		p++;
+	if (p == target || p == end || !*p)
+		return NULL;
+
+	*len = p - start;
+	return start;
 }
 
 static bool ksu_should_destroy_context(char *str, size_t limit)
