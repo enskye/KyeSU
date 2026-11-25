@@ -64,9 +64,11 @@ static __always_inline int ksu_hide_setprocattr_inline(const char *name, void *v
 #if defined(KSU_HAS_ARM64_SELINUX_HIDE) && LINUX_VERSION_CODE >= KERNEL_VERSION(5, 10, 0)
 	// current cannot be cleared with a newline: both unknown-type payloads
 	// are invalid. Normalize before SELinux chooses its newline bypass.
-	if (size >= sizeof(SH_INVALID_CONTEXT) && sh_reject_context(str, size, true)) {
-		memset(str, 0, size);
-		memcpy(str, SH_INVALID_CONTEXT, sizeof(SH_INVALID_CONTEXT));
+	if (size >= sizeof(SH_INVALID_CONTEXT)) {
+		if (sh_reject_context(str, size, true)) {
+			memset(str, 0, size);
+			memcpy(str, SH_INVALID_CONTEXT, sizeof(SH_INVALID_CONTEXT));
+		}
 		return 0;
 	}
 #endif
