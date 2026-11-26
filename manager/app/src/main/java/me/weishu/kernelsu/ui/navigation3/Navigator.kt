@@ -1,6 +1,7 @@
 package me.weishu.kernelsu.ui.navigation3
 
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.key
 import androidx.compose.runtime.staticCompositionLocalOf
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -124,7 +125,10 @@ class Navigator(
 
 @Composable
 fun rememberNavigator(startRoute: Route): Navigator {
-    val backStack = rememberNavBackStack<Route>(startRoute)
+    // V1 FlashIt parcels did not store a subtype tag and cannot be restored safely.
+    val backStack = key("nav-backstack-v2") {
+        rememberNavBackStack<Route>(startRoute)
+    }
     return androidx.compose.runtime.remember(backStack) { Navigator(backStack) }
 }
 
